@@ -1,3 +1,5 @@
+# coding: 8859
+
 import argparse
 import pandas as pds
 import numpy as np
@@ -18,7 +20,7 @@ def openfile(path="./plots/data/perf_data.csv", sepa=";"):
         print("File not found: ", path, file=sys.stderr)
         sys.exit(1)
 
-# Donne tous les champs de df qui ne sont pas listés
+# Donne tous les champs de df qui ne sont pas list�s
 
 
 def complementaryCols(listeAttr, df):
@@ -60,26 +62,29 @@ def texteParametresConstants(df, texte=""):
     const = constantCols(df)
     string = ""
     # Donne les valeurs des constantes dans l'ordre des colonnes
-    dataConst = [df[i][0] for i in const]
+    dataConst = [df[i].iloc[0] for i in const]
     for i in range(len(const)):
-        string = string + str(const[i]) + "=" + str(dataConst[i]) + " "
-    return textwrap.fill(texte + " " + string, width=90)
+        if dataConst[i] != "none" and str(dataConst[i]) != "nan":
+            string = string + str(const[i]) + "=" + str(dataConst[i]) + " "
+    return textwrap.fill(texte + " " + string, width=130)
 
 
 def nombreParametresConstants(df):
     return len(constantCols(df))
 
 
-def creationRefSpeedUp(df):  # Automatise la creation du speedup
-    df['ref'] = 0
+def creationRefSpeedUp(df, noRefTime=True):  # Automatise la creation du speedup
+    df['refTime'] = 0
     for i in (allData('dim', df)):
         for ite in (allData('iterations', df)):
             for ker in (allData('kernel', df)):
                 valPerf = df[(df.threads == 1) & (df.dim == i) & (
                     df.iterations == ite) & (df.kernel == ker)]['time']
                 df.loc[(df.dim == i) & (df.iterations == ite) &
-                       (df.kernel == ker), 'ref'] = valPerf.min()
-    df['speedup'] = df['ref'] / df['time']
+                       (df.kernel == ker), 'refTime'] = valPerf.min()
+    df['speedup'] = df['refTime'] / df['time']
+    if noRefTime:
+        del df['refTime']
 
 
 def creerGraphique(df,
@@ -89,8 +94,9 @@ def creerGraphique(df,
                    row='iterations',
                    plottype='lineplot',
                    yscale='linear',
+                   xscale='linear',
                    height=5,
-                   showTitle=True):
+                   showParameters=True):
 
     if (df['label'] == 'unlabelled').all:
         del df['label']
@@ -101,25 +107,33 @@ def creerGraphique(df,
     df = df.sort_values(by=y, ascending=False)
 
     g = sns.FacetGrid(df, row=row, col=col, hue="legend",
-                      height=height, margin_titles=True)
+                      height=height, margin_titles=True, legend_out=True, aspect=1.1)
+    sns.set(font_scale=1.1)
     if (plottype == 'lineplot'):
-        g.map(sns.lineplot, x, y, err_style="bars",
-              marker="o")
+        g.map(sns.lineplot, x, y, err_style="bars", marker="o")
     elif (plottype == 'barplot'):
         g.map(sns.barplot, x, y)
     else:
         print("Chose between 'lineplot' and 'barplot'")
         return 0
     g.set(yscale=yscale)
+    g.set(xscale=xscale)
+    if yscale == 'linear':
+        g.set(ylim=(0, None))
+    if xscale == 'linear':
+        g.set(xlim=(1, None))
     g.add_legend()
-    if showTitle:
-        plt.subplots_adjust(top=0.85)
-        if constNum == 0:
-            titre = (u'Courbe de {y} en fonction de {x}').format(x=x, y=y)
-        else:
-            titre = (u'Courbe de {y} en fonction de {x}\n {cons}').format(
-                x=x, y=y, cons=texteParametresConstants(df, "Paramètre :" if constNum == 1 else "Paramètres :"))
+
+    if constNum == 0:
+        titre = (u'Courbe de {y} en fonction de {x}').format(x=x, y=y)
+    else:
+        titre = (u'{cons}').format(
+            x=x, y=y, cons=texteParametresConstants(df, u"Parameter :" if constNum == 1 else u"Parameters :"))
+    if showParameters:
+        plt.subplots_adjust(top=0.9)
         g.fig.suptitle(titre)
+    else:
+        print(titre)
     return g
 
 
@@ -159,6 +173,14 @@ def parserArguments(argv):
                         help="list of numbers of threads to plot",
                         default="")
 
+    parser.add_argument('--delete',
+                        action='store', nargs='+',
+                        help="delete a column before proceeding data",
+                        choices=["dim", "iterations",
+                                 "kernel", "variant", "grain", "schedule"],
+                        default=""
+                        )
+
     parser.add_argument('-v', '--variant',
                         action='store', nargs='+',
                         help="list of variants to plot",
@@ -190,12 +212,22 @@ def parserArguments(argv):
                         help="to set the height of each subgraph",
                         default=4)
 
-    parser.add_argument('--showTitle',
+    parser.add_argument('--showParameters',
                         action='store_true',
-                        help="to print title",
+                        help="to print constant parameters",
+                        default=False)
+
+    parser.add_argument('--noRefTime',
+                        action='store_true',
+                        help="do not print reftime in legend",
                         default=False)
 
     parser.add_argument('--yscale',
+                        choices=["linear", "log", "symlog", "logit"],
+                        action='store',
+                        default="linear")
+
+    parser.add_argument('--xscale',
                         choices=["linear", "log", "symlog", "logit"],
                         action='store',
                         default="linear")
@@ -224,8 +256,14 @@ def lireDataFrame(args):
     if args.dim != "":
         df = df[df.dim.isin(args.dim)].reset_index(drop=True)
 
+    if args.delete != []:
+        for attr in args.delete:
+            del df[attr]
+
     if args.y == "speedup":
-        creationRefSpeedUp(df)
+        creationRefSpeedUp(df, args.noRefTime)
+        df = df[df.variant != 'seq']
+        df = df[df.variant != 'vec']
 
     if args.label != "":
         df = df[df.label.isin(args.label)].reset_index(drop=True)
