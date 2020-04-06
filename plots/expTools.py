@@ -10,9 +10,7 @@ def iterateur_option(dicopt):
         for val in listval:
             optlist += [opt + str(val)]
         options += [optlist]
-        # print(options)
     for value in product(*options):
-        #print("value :", value)
         yield ' '.join(value)
 
 

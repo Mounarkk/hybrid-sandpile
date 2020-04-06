@@ -1,5 +1,4 @@
 # coding: 8859
-
 import argparse
 import pandas as pds
 import numpy as np
@@ -66,72 +65,75 @@ def texteParametresConstants(df, texte=""):
     for i in range(len(const)):
         if dataConst[i] != "none" and str(dataConst[i]) != "nan":
             string = string + str(const[i]) + "=" + str(dataConst[i]) + " "
-    return textwrap.fill(texte + " " + string, width=130)
+    return texte + " " + string
 
 
 def nombreParametresConstants(df):
     return len(constantCols(df))
 
 
-def creationRefSpeedUp(df, noRefTime=True):  # Automatise la creation du speedup
+def creationRefSpeedUp(df, args):  # Automatise la creation du speedup
     df['refTime'] = 0
-    for i in (allData('dim', df)):
-        for ite in (allData('iterations', df)):
-            for ker in (allData('kernel', df)):
-                valPerf = df[(df.threads == 1) & (df.dim == i) & (
-                    df.iterations == ite) & (df.kernel == ker)]['time']
-                df.loc[(df.dim == i) & (df.iterations == ite) &
-                       (df.kernel == ker), 'refTime'] = valPerf.min()
+
+    if args.RefTimeVariants == "":
+        refDF = df[df.threads == 1].reset_index(drop=True)
+    else:
+        refDF = df[df.variant.isin(args.RefTimeVariants)
+                   & df.threads == 1].reset_index(drop=True)
+    if refDF.empty:
+        print("No reference to compute speedUP")
+        exit()
+
+    if 'iterations' in args.delete:
+        for i in (allData('dim', refDF)):
+            for ker in (allData('kernel', refDF)):
+                valPerf = refDF[(refDF.dim == i) & (
+                    refDF.kernel == ker)]['time']
+                df.loc[(df.dim == i) & (df.kernel == ker),
+                       'refTime'] = valPerf.min()
+    else:
+        for i in (allData('dim', refDF)):
+            for ite in (allData('iterations', refDF)):
+                for ker in (allData('kernel', refDF)):
+                    valPerf = refDF[(refDF.dim == i) &
+                                    (refDF.iterations == ite) & (refDF.kernel == ker)]['time']
+                    df.loc[(df.dim == i) & (df.iterations == ite) &
+                           (df.kernel == ker), 'refTime'] = valPerf.min()
     df['speedup'] = df['refTime'] / df['time']
-    if noRefTime:
+
+    if args.noRefTime:
         del df['refTime']
 
 
-def creerGraphique(df,
-                   x='threads',
-                   y='time',
-                   col='dim',
-                   row='iterations',
-                   plottype='lineplot',
-                   yscale='linear',
-                   xscale='linear',
-                   height=5,
-                   showParameters=True):
-
-    if (df['label'] == 'unlabelled').all:
-        del df['label']
+def creerGraphique(df, args):
     constNum = nombreParametresConstants(df)
-    datasForGrapheNames = [x, y, col, row]
+    datasForGrapheNames = [args.x, args.y, args.col, args.row]
     creationLegende(datasForGrapheNames, df)
 
-    df = df.sort_values(by=y, ascending=False)
+    df = df.sort_values(by=args.y, ascending=False)
 
-    g = sns.FacetGrid(df, row=row, col=col, hue="legend",
-                      height=height, margin_titles=True, legend_out=True, aspect=1.1)
-    sns.set(font_scale=1.1)
-    if (plottype == 'lineplot'):
-        g.map(sns.lineplot, x, y, err_style="bars", marker="o")
-    elif (plottype == 'barplot'):
-        g.map(sns.barplot, x, y)
+    g = sns.FacetGrid(df, row=args.row, col=args.col, hue="legend",
+                      height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
+    sns.set(font_scale=1)
+    if (args.plottype == 'lineplot'):
+        g.map(sns.lineplot, args.x, args.y, err_style="bars", marker="o")
     else:
-        print("Chose between 'lineplot' and 'barplot'")
-        return 0
-    g.set(yscale=yscale)
-    g.set(xscale=xscale)
-    if yscale == 'linear':
-        g.set(ylim=(0, None))
-    if xscale == 'linear':
-        g.set(xlim=(1, None))
+        g.map(sns.barplot, args.x, args.y)
+    g.set(yscale=args.yscale)
+    g.set(xscale=args.xscale)
+    if args.x == 'threads':
+        g.set(xlim=(0, None))
     g.add_legend()
 
     if constNum == 0:
-        titre = (u'Courbe de {y} en fonction de {x}').format(x=x, y=y)
+        titre = (u'Courbe de {y} en fonction de {x}').format(
+            x=args.x, y=args.y)
     else:
-        titre = (u'{cons}').format(
-            x=x, y=y, cons=texteParametresConstants(df, u"Parameter :" if constNum == 1 else u"Parameters :"))
-    if showParameters:
-        plt.subplots_adjust(top=0.9)
-        g.fig.suptitle(titre)
+        titre = (u'{cons}').format(x=args.x, y=args.y,
+                                   cons=texteParametresConstants(df, ""))
+    if args.showParameters:
+        plt.subplots_adjust(top=args.adjustTop)
+        g.fig.suptitle(titre, wrap=True)
     else:
         print(titre)
     return g
@@ -143,13 +145,13 @@ def parserArguments(argv):
         argv, description='Process performance plots')
 
     parser.add_argument(
-        "-x", choices=["threads", "dim", "iterations", "grain"], default="threads")
+        "-x", choices=["threads", "dim", "iterations", "grain", "custom"], default="threads")
     parser.add_argument(
-        "-y", choices=["time", "speedup", "throughput"], default="speedup")
+        "-y", choices=["time", "speedup", "throughput", "custom"], default="speedup")
     parser.add_argument(
-        "-C", "--col", choices=["dim", "iterations", "kernel", "variant", "grain"], default=None)
+        "-C", "--col", choices=["dim", "iterations", "kernel", "variant", "grain", "schedule", "label", "machine", "custom"], default=None)
     parser.add_argument(
-        "-R", "--row", choices=["dim", "iterations", "kernel", "variant", "grain"], default=None)
+        "-R", "--row", choices=["dim", "iterations", "kernel", "variant", "grain", "schedule", "label", "machine", "custom"], default=None)
 
     parser.add_argument('-of', '--output',
                         action='store', nargs='?',
@@ -177,7 +179,7 @@ def parserArguments(argv):
                         action='store', nargs='+',
                         help="delete a column before proceeding data",
                         choices=["dim", "iterations",
-                                 "kernel", "variant", "grain", "schedule"],
+                                 "kernel", "variant", "grain", "schedule", "machine", "label"],
                         default=""
                         )
 
@@ -191,9 +193,19 @@ def parserArguments(argv):
                         help="list of grains to plot",
                         default="")
 
+    parser.add_argument('-m', '--machine',
+                        action='store', nargs='+',
+                        help="list of machines to plot",
+                        default="")
+
     parser.add_argument('-i', '--iterations',
                         action='store', nargs='+',
-                        help="list of iterarations to plot",
+                        help="list of iterations to plot",
+                        default="")
+
+    parser.add_argument('-sc', '--schedule',
+                        action='store', nargs='+',
+                        help="list of schedule policies to plot",
                         default="")
 
     parser.add_argument('-d', '--dim',
@@ -217,10 +229,32 @@ def parserArguments(argv):
                         help="to print constant parameters",
                         default=False)
 
+    parser.add_argument('--legendInside',
+                        action='store_true',
+                        help="to print the legend inside the graph",
+                        default=False)
+
+    parser.add_argument('--adjustTop',
+                        action='store',
+                        type=float,
+                        help="to adjust the space for the suptitle",
+                        default=.9)
+
+    parser.add_argument('--aspect',
+                        action='store',
+                        type=float,
+                        help="to adjust the ratio length/height",
+                        default=1.1)
+
     parser.add_argument('--noRefTime',
                         action='store_true',
                         help="do not print reftime in legend",
                         default=False)
+
+    parser.add_argument('-rtv', '--RefTimeVariants',
+                        action='store', nargs='+',
+                        help="list of variants to take into account to compute the speedUP RefTimes",
+                        default="")
 
     parser.add_argument('--yscale',
                         choices=["linear", "log", "symlog", "logit"],
@@ -256,17 +290,21 @@ def lireDataFrame(args):
     if args.dim != "":
         df = df[df.dim.isin(args.dim)].reset_index(drop=True)
 
+    if args.machine != "":
+        df = df[df.machine.isin(args.machine)].reset_index(drop=True)
+
     if args.delete != []:
         for attr in args.delete:
             del df[attr]
 
     if args.y == "speedup":
-        creationRefSpeedUp(df, args.noRefTime)
-        df = df[df.variant != 'seq']
-        df = df[df.variant != 'vec']
+        creationRefSpeedUp(df, args)
 
     if args.label != "":
         df = df[df.label.isin(args.label)].reset_index(drop=True)
+
+    if args.schedule != "":
+        df = df[df.schedule.isin(args.schedule)].reset_index(drop=True)
 
     if args.threads != "":
         df = df[df.threads.isin(args.threads)].reset_index(drop=True)
@@ -276,6 +314,14 @@ def lireDataFrame(args):
 
     if args.grain != "":
         df = df[df.grain.isin(args.grain)].reset_index(drop=True)
+
+    if args.y == "throughput":
+        args.y = 'throughput (MPixel / s)'
+        df[args.y] = (df['dim'] ** 2) * df['iterations'] / df['time']
+
+    if df.empty:
+        print("No data")
+        exit()
 
     return df
 
