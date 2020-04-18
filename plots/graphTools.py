@@ -114,7 +114,7 @@ def creerGraphique(df, args):
 
     g = sns.FacetGrid(df, row=args.row, col=args.col, hue="legend",
                       height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
-    sns.set(font_scale=1)
+    sns.set(font_scale=args.font_scale)
     if (args.plottype == 'lineplot'):
         g.map(sns.lineplot, args.x, args.y, err_style="bars", marker="o")
     else:
@@ -245,6 +245,12 @@ def parserArguments(argv):
                         type=float,
                         help="to adjust the ratio length/height",
                         default=1.1)
+
+    parser.add_argument('--font_scale',
+                        action='store',
+                        type=float,
+                        help="to adjust the font of the title and the legend",
+                        default=1.0)
 
     parser.add_argument('--noRefTime',
                         action='store_true',
