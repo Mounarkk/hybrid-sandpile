@@ -112,18 +112,22 @@ def creerGraphique(df, args):
 
     df = df.sort_values(by=args.y, ascending=False)
 
-    g = sns.FacetGrid(df, row=args.row, col=args.col, hue="legend",
-                      height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
-    sns.set(font_scale=args.font_scale)
     if (args.plottype == 'lineplot'):
+        g = sns.FacetGrid(df, row=args.row, col=args.col, hue="legend", sharex='col', sharey='row',
+                          height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
+
         g.map(sns.lineplot, args.x, args.y, err_style="bars", marker="o")
+        g.set(xscale=args.xscale)
+        g.add_legend()
+        if args.x == 'threads':
+            g.set(xlim=(0, None))
     else:
-        g.map(sns.barplot, args.x, args.y)
+        g = sns.catplot(data=df, x=args.x, y=args.y, row=args.row, col=args.col, hue="legend",
+                        kind=args.kind, sharex='col', sharey='row',
+                        height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
+
+    sns.set(font_scale=args.font_scale)
     g.set(yscale=args.yscale)
-    g.set(xscale=args.xscale)
-    if args.x == 'threads':
-        g.set(xlim=(0, None))
-    g.add_legend()
 
     if constNum == 0:
         titre = (u'Courbe de {y} en fonction de {x}').format(
@@ -144,14 +148,14 @@ def parserArguments(argv):
     parser = argparse.ArgumentParser(
         argv, description='Process performance plots')
 
-    parser.add_argument(
-        "-x", choices=["threads", "dim", "iterations", "grain", "custom"], default="threads")
+    all = ["dim", "iterations", "kernel", "variant", "threads",
+           "grain", "schedule", "label", "machine", "custom"]
+
+    parser.add_argument("-x", choices=all, default="threads")
     parser.add_argument(
         "-y", choices=["time", "speedup", "throughput", "custom"], default="speedup")
-    parser.add_argument(
-        "-C", "--col", choices=["dim", "iterations", "kernel", "variant", "grain", "schedule", "label", "machine", "custom"], default=None)
-    parser.add_argument(
-        "-R", "--row", choices=["dim", "iterations", "kernel", "variant", "grain", "schedule", "label", "machine", "custom"], default=None)
+    parser.add_argument("-C", "--col", choices=all, default=None)
+    parser.add_argument("-R", "--row", choices=all, default=None)
 
     parser.add_argument('-of', '--output',
                         action='store', nargs='?',
@@ -178,8 +182,7 @@ def parserArguments(argv):
     parser.add_argument('--delete',
                         action='store', nargs='+',
                         help="delete a column before proceeding data",
-                        choices=["dim", "iterations",
-                                 "kernel", "variant", "grain", "schedule", "machine", "label"],
+                        choices=all,
                         default=""
                         )
 
@@ -273,9 +276,16 @@ def parserArguments(argv):
                         default="linear")
 
     parser.add_argument('--plottype',
-                        choices=['lineplot', 'barplot'],
+                        choices=['lineplot', 'catplot'],
                         action='store',
                         default="lineplot")
+
+    parser.add_argument('--kind',
+                        choices=["strip", "swarm", "box", "violin",
+                                 "boxen", "point", "bar", "count"],
+                        help="kind of barplot (see sns catplot)",
+                        action='store',
+                        default="strip")
 
     args = parser.parse_args()
 
