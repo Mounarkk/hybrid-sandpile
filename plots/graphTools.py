@@ -9,8 +9,6 @@ import sys
 import textwrap
 from matplotlib.backends.backend_pdf import PdfPages
 
-sns.set(style="darkgrid")
-
 
 def openfile(path="./plots/data/perf_data.csv", sepa=";"):
     try:
@@ -110,7 +108,13 @@ def creerGraphique(df, args):
     datasForGrapheNames = [args.x, args.y, args.col, args.row]
     creationLegende(datasForGrapheNames, df)
 
-    df = df.sort_values(by=args.y, ascending=False)
+    if args.y == "time":
+        df['time'] = df['time'] / 1000
+        df.rename(columns={'time': 'time (ms)'}, inplace=True)
+        args.y = "time (ms)"
+
+    if not args.no_sort:
+        df = df.sort_values(by=args.y, ascending=False)
 
     if (args.plottype == 'lineplot'):
         g = sns.FacetGrid(df, row=args.row, col=args.col, hue="legend", sharex='col', sharey='row',
@@ -126,7 +130,8 @@ def creerGraphique(df, args):
                         kind=args.kind, sharex='col', sharey='row',
                         height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
 
-    sns.set(font_scale=args.font_scale)
+    if args.font_scale != 1.0:
+        sns.set(font_scale=args.font_scale)
     g.set(yscale=args.yscale)
 
     if constNum == 0:
@@ -149,13 +154,19 @@ def parserArguments(argv):
         argv, description='Process performance plots')
 
     all = ["dim", "iterations", "kernel", "variant", "threads",
-           "grain", "schedule", "label", "machine", "custom"]
+           "grain", "schedule", "label", "machine", "tile", "arg"]
 
-    parser.add_argument("-x", choices=all, default="threads")
+    parser.add_argument("-x", choices=all+["custom"], default="threads")
     parser.add_argument(
         "-y", choices=["time", "speedup", "throughput", "custom"], default="speedup")
-    parser.add_argument("-C", "--col", choices=all, default=None)
-    parser.add_argument("-R", "--row", choices=all, default=None)
+
+    parser.add_argument('-rtv', '--RefTimeVariants',
+                        action='store', nargs='+',
+                        help="list of variants to take into account to compute the speedUP RefTimes",
+                        default="")
+
+    parser.add_argument("-C", "--col", choices=all+["custom"], default=None)
+    parser.add_argument("-R", "--row", choices=all+["custom"], default=None)
 
     parser.add_argument('-of', '--output',
                         action='store', nargs='?',
@@ -195,6 +206,11 @@ def parserArguments(argv):
                         action='store', nargs='+',
                         help="list of grains to plot",
                         default="")
+
+    parser.add_argument('-ts', '--tile',
+                        action='store', nargs='*',
+                        help="print tile sizes rather than grains / list of tiles to plot",
+                        default=None)
 
     parser.add_argument('-m', '--machine',
                         action='store', nargs='+',
@@ -237,6 +253,11 @@ def parserArguments(argv):
                         help="to print the legend inside the graph",
                         default=False)
 
+    parser.add_argument("--no_sort",
+                        action='store_true',
+                        help="sort data following y",
+                        default=False)
+
     parser.add_argument('--adjustTop',
                         action='store',
                         type=float,
@@ -260,11 +281,6 @@ def parserArguments(argv):
                         help="do not print reftime in legend",
                         default=False)
 
-    parser.add_argument('-rtv', '--RefTimeVariants',
-                        action='store', nargs='+',
-                        help="list of variants to take into account to compute the speedUP RefTimes",
-                        default="")
-
     parser.add_argument('--yscale',
                         choices=["linear", "log", "symlog", "logit"],
                         action='store',
@@ -285,15 +301,13 @@ def parserArguments(argv):
                                  "boxen", "point", "bar", "count"],
                         help="kind of barplot (see sns catplot)",
                         action='store',
-                        default="strip")
+                        default="swarm")
 
     args = parser.parse_args()
-
     return args
 
 
 def lireDataFrame(args):
-
     # Lecture du fichier d'experiences:
     df = openfile(args.input, sepa=";")
 
@@ -331,6 +345,14 @@ def lireDataFrame(args):
     if args.grain != "":
         df = df[df.grain.isin(args.grain)].reset_index(drop=True)
 
+    if args.tile != None:
+        df['tile'] = df['dim'] // df['grain']
+        if args.tile != []:
+            df = df[df.tile.isin(args.tile)].reset_index(drop=True)
+        df['tile'] = df['tile'].apply(
+            lambda row: str(row) + '$\\times$' + str(row))
+        del df['grain']
+
     if args.y == "throughput":
         args.y = 'throughput (MPixel / s)'
         df[args.y] = (df['dim'] ** 2) * df['iterations'] / df['time']
@@ -339,7 +361,8 @@ def lireDataFrame(args):
         print("No data")
         exit()
 
-    return df
+    # remove empty columns
+    return df.dropna(axis=1, how='all')
 
 
 def engeristrerGraphique(fig):
