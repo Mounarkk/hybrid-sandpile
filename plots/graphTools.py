@@ -71,7 +71,9 @@ def nombreParametresConstants(df):
 
 
 def creationRefSpeedUp(df, args):  # Automatise la creation du speedup
-    df['refTime'] = 0
+
+    group = ['machine', 'size', 'kernel', 'iterations', 'arg']
+    group = [attr for attr in group if attr not in args.delete]
 
     if args.RefTimeVariants == "":
         refDF = df[df.threads == 1].reset_index(drop=True)
@@ -82,25 +84,21 @@ def creationRefSpeedUp(df, args):  # Automatise la creation du speedup
         print("No reference to compute speedUP")
         exit()
 
-    if 'iterations' in args.delete:
-        for i in (allData('dim', refDF)):
-            for ker in (allData('kernel', refDF)):
-                valPerf = refDF[(refDF.dim == i) & (
-                    refDF.kernel == ker)]['time']
-                df.loc[(df.dim == i) & (df.kernel == ker),
-                       'refTime'] = valPerf.min()
-    else:
-        for i in (allData('dim', refDF)):
-            for ite in (allData('iterations', refDF)):
-                for ker in (allData('kernel', refDF)):
-                    valPerf = refDF[(refDF.dim == i) &
-                                    (refDF.iterations == ite) & (refDF.kernel == ker)]['time']
-                    df.loc[(df.dim == i) & (df.iterations == ite) &
-                           (df.kernel == ker), 'refTime'] = valPerf.min()
+    for i in complementaryCols(group + ['time'], refDF):
+        del refDF[i]
+
+    refDF = refDF.loc[refDF.groupby(
+        group).time.idxmin()].reset_index(drop=True)
+    refDF = refDF.rename(columns={'time': 'refTime'})
+
+    df = df.merge(refDF, how='inner')
+
     df['speedup'] = df['refTime'] / df['time']
 
     if args.noRefTime:
         del df['refTime']
+
+    return df
 
 
 def creerGraphique(df, args):
@@ -140,7 +138,7 @@ def creerGraphique(df, args):
     else:
         titre = (u'{cons}').format(x=args.x, y=args.y,
                                    cons=texteParametresConstants(df, ""))
-    if args.showParameters:
+    if not args.hideParameters:
         plt.subplots_adjust(top=args.adjustTop)
         g.fig.suptitle(titre, wrap=True)
     else:
@@ -151,10 +149,15 @@ def creerGraphique(df, args):
 def parserArguments(argv):
     global parser, args
     parser = argparse.ArgumentParser(
-        argv, description='Process performance plots')
+        argv,
+        description='''Process performance plots.
+        The labels of the options are similar to those of
+        easypap for all that relates to data selection,
+        and to those of seaborn for all aspects of graphic
+        layout https://seaborn.pydata.org/introduction.html''')
 
-    all = ["dim", "iterations", "kernel", "variant", "threads",
-           "grain", "schedule", "label", "machine", "tile", "arg"]
+    all = ["size", "iterations", "kernel", "variant", "threads",
+           "nb_tiles", "schedule", "label", "machine", "tile_size", "tileh", "tilew", "arg"]
 
     parser.add_argument("-x", choices=all+["custom"], default="threads")
     parser.add_argument(
@@ -202,15 +205,26 @@ def parserArguments(argv):
                         help="list of variants to plot",
                         default="")
 
-    parser.add_argument('-g', '--grain',
+    parser.add_argument('-th', '--tileh',
                         action='store', nargs='+',
-                        help="list of grains to plot",
+                        help="list of tile heights to plot",
                         default="")
 
-    parser.add_argument('-ts', '--tile',
-                        action='store', nargs='*',
-                        help="print tile sizes rather than grains / list of tiles to plot",
-                        default=None)
+    parser.add_argument('-tw', '--tilew',
+                        action='store', nargs='+',
+                        help="list of tile widths to plot",
+                        default="")
+
+    parser.add_argument('-nt', '--nb_tiles',
+                        action='store', nargs='+',
+                        help="list of nb_tiles to plot",
+                        default="")
+
+
+#    parser.add_argument('-ts', '--tile',
+#                        action='store', nargs='*',
+#                        help="print tile sizes rather than nb_tiles / list of tiles to plot",
+#                        default=None)
 
     parser.add_argument('-m', '--machine',
                         action='store', nargs='+',
@@ -227,7 +241,7 @@ def parserArguments(argv):
                         help="list of schedule policies to plot",
                         default="")
 
-    parser.add_argument('-d', '--dim',
+    parser.add_argument('-s', '--size',
                         action='store', nargs='+',
                         help="list of sizes to plot",
                         default="")
@@ -243,9 +257,9 @@ def parserArguments(argv):
                         help="to set the height of each subgraph",
                         default=4)
 
-    parser.add_argument('--showParameters',
+    parser.add_argument('--hideParameters',
                         action='store_true',
-                        help="to print constant parameters",
+                        help="to hide constant parameters",
                         default=False)
 
     parser.add_argument('--legendInside',
@@ -317,8 +331,8 @@ def lireDataFrame(args):
     if args.iterations != "":
         df = df[df.iterations.isin(args.iterations)].reset_index(drop=True)
 
-    if args.dim != "":
-        df = df[df.dim.isin(args.dim)].reset_index(drop=True)
+    if args.size != "":
+        df = df[df["size"].isin(args.size)].reset_index(drop=True)
 
     if args.machine != "":
         df = df[df.machine.isin(args.machine)].reset_index(drop=True)
@@ -328,7 +342,7 @@ def lireDataFrame(args):
             del df[attr]
 
     if args.y == "speedup":
-        creationRefSpeedUp(df, args)
+        df = creationRefSpeedUp(df, args)
 
     if args.label != "":
         df = df[df.label.isin(args.label)].reset_index(drop=True)
@@ -342,20 +356,32 @@ def lireDataFrame(args):
     if args.variant != "":
         df = df[df.variant.isin(args.variant)].reset_index(drop=True)
 
-    if args.grain != "":
-        df = df[df.grain.isin(args.grain)].reset_index(drop=True)
+    if args.tileh != "":
+        df = df[df.tileh.isin(args.tileh)].reset_index(drop=True)
 
-    if args.tile != None:
-        df['tile'] = df['dim'] // df['grain']
-        if args.tile != []:
-            df = df[df.tile.isin(args.tile)].reset_index(drop=True)
-        df['tile'] = df['tile'].apply(
-            lambda row: str(row) + '$\\times$' + str(row))
-        del df['grain']
+    if args.tilew != "":
+        df = df[df.tilew.isin(args.tilew)].reset_index(drop=True)
+
+    if args.nb_tiles == "":
+        if not ('tileh' in [args.col, args.row, args.x] or 'tilew' in [args.col, args.row, args.x]):
+            df['tile'] = df.tileh.map(str) + '$\\times$' + df.tilew.map(str)
+            del df['tileh']
+            del df['tilew']
+    else:
+        df['nb_tileh'] = df['size'] // df['tileh']
+        df['nb_tilew'] = df['size'] // df['tilew']
+        df = df[df.nb_tilew.isin(args.nb_tiles)].reset_index(drop=True)
+        # df = df[df.nb_tileh.isin(args.nb_tiles)].reset_index(drop=True)
+        df = df[df.nb_tileh == df.nb_tilew].reset_index(drop=True)
+        df['nb_tiles'] = df['nb_tileh']
+        del df['tileh']
+        del df['tilew']
+        del df['nb_tileh']
+        del df['nb_tilew']
 
     if args.y == "throughput":
         args.y = 'throughput (MPixel / s)'
-        df[args.y] = (df['dim'] ** 2) * df['iterations'] / df['time']
+        df[args.y] = (df['size'] ** 2) * df['iterations'] / df['time']
 
     if df.empty:
         print("No data")
