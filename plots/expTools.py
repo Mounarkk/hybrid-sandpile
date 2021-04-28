@@ -17,9 +17,9 @@ def iterateur_option(dicopt):
 def execute(commande, ompenv, option, nbrun=1, verbose=True, easyPath='.'):
     path = os.getcwd()
     os.chdir(easyPath)
-    for omp in iterateur_option(ompenv):
-        for opt in iterateur_option(option):
-            for i in range(nbrun):
+    for i in range(nbrun):
+        for omp in iterateur_option(ompenv):
+            for opt in iterateur_option(option):
                 if (verbose):
                     print(omp + " " + commande + " -n " + opt)
                 if(subprocess.call([omp + " " + commande + " -n " + opt], shell=True) == 1):

@@ -28,61 +28,80 @@ def constantCols(df):
     return df.columns[df.eq(df.iloc[0]).all()].tolist()
 
 
-def allData(name, df):  # Donne toutes les valeurs possibles de la colonne "name" dans "df"
-    return df[name].unique()
-
-
-def shuffle(u, v, sepa=" "):
+def shuffle(u, v, before=" ", equal="="):
     s = ""
     for i in zip(u, v):
-        s += str(i[0]) + "=" + str(i[1]) + sepa
+        s += before + str(i[0]) + equal + str(i[1])
     return s
+
+
+def factorizeLegendColRow(axisCol, args, axisAttr, df):
+    if axisCol == None:
+        return
+    # list the attr that are functionally dependent on axisCol
+    funcDeps = []
+    for col in list(df.columns):
+        if not col in axisAttr:
+            projection = df[[axisCol, col]].groupby(axisCol).nunique()
+            if projection[projection[col] > 1].empty:
+                funcDeps += [col]
+    if funcDeps != []:
+        df["tmp"] = df[funcDeps].apply(
+            lambda row: shuffle(funcDeps, row.values.tolist(), "  ", " = "), axis=1)
+        for col in funcDeps:
+            del df[col]
+        df[axisCol] = df[axisCol].map(str) + " |" + df["tmp"]
+        del df["tmp"]
+
+
+def computeTitleAndLegend(args, df):
+    axisAttr = [args.x, args.y, args.col, args.row, args.heaty]
+    constantParameters = constantCols(df)
+    if len(constantParameters) == 0:
+        title = (u'Courbe de {y} en fonction de {x}').format(
+            x=args.x, y=args.y)
+    else:
+        title = (u'{cons}').format(x=args.x, y=args.y,
+                                   cons=textForConstantParameters(df, constantParameters))
+        for col in constantParameters:
+            if not col in axisAttr:
+                del df[col]
+
+    factorizeLegendColRow(args.col, args, axisAttr, df)
+    factorizeLegendColRow(args.row, args, axisAttr, df)
+
+    attr = complementaryCols(['time', 'ref'] + axisAttr, df)
+
+    if attr != []:
+        df['legend'] = df[attr].apply(
+            lambda row: shuffle(attr, row.values.tolist()), axis=1)
+    return title
+
 
 # Cree les nom avec toutes les valeurs non utilisees pour le reste du graphique
 
-
-def creationLegende(datasForGrapheNames, df):
-
-    attr = complementaryCols(['time', 'ref'] + datasForGrapheNames +
-                             [i for i in list(df.columns) if df[i].nunique() == 1], df)
-
-    if attr == []:
-        attr = ['kernel']
-
-    df['legend'] = df[attr].apply(
-        lambda row: shuffle(attr, row.values.tolist()), axis=1)
-
-# Donne les valeurs constantes de "df" a travers un dictionnaire
-
-
-def texteParametresConstants(df, texte=""):
-    const = constantCols(df)
+def textForConstantParameters(df, constantParameters):
     string = ""
     # Donne les valeurs des constantes dans l'ordre des colonnes
-    dataConst = [df[i].iloc[0] for i in const]
-    for i in range(len(const)):
+    dataConst = [df[i].iloc[0] for i in constantParameters]
+    for i in range(len(constantParameters)):
         if dataConst[i] != "none" and str(dataConst[i]) != "nan":
-            string = string + str(const[i]) + "=" + str(dataConst[i]) + " "
-    return texte + " " + string
+            string = string + \
+                str(constantParameters[i]) + "=" + str(dataConst[i]) + " "
+    return string
 
 
-def nombreParametresConstants(df):
-    return len(constantCols(df))
-
-
-def creationRefSpeedUp(df, args):  # Automatise la creation du speedup
-
+def computeSpeedUpAttr(df, args):  # Automatise la creation du speedup
     group = ['machine', 'size', 'kernel', 'iterations', 'arg']
-    group = [attr for attr in group if attr not in args.delete]
-
-    if args.RefTimeVariants == "":
+    group = [
+        attr for attr in group if attr not in args.delete and attr in list(df.columns)]
+    if args.RefTimeVariants == []:
         refDF = df[df.threads == 1].reset_index(drop=True)
     else:
         refDF = df[df.variant.isin(args.RefTimeVariants)
                    & df.threads == 1].reset_index(drop=True)
     if refDF.empty:
-        print("No reference to compute speedUP")
-        exit()
+        sys.exit("No row with OMP_NUM_THREADS=1 to compute speedUP")
 
     for i in complementaryCols(group + ['time'], refDF):
         del refDF[i]
@@ -94,59 +113,86 @@ def creationRefSpeedUp(df, args):  # Automatise la creation du speedup
     df = df.merge(refDF, how='inner')
 
     df['speedup'] = df['refTime'] / df['time']
-
+    del df['time']
     if args.noRefTime:
         del df['refTime']
-
+    else:
+        df['refTime'] = df['refTime'] // 1000
     return df
 
 
-def creerGraphique(df, args):
-    constNum = nombreParametresConstants(df)
-    datasForGrapheNames = [args.x, args.y, args.col, args.row]
-    creationLegende(datasForGrapheNames, df)
+def heatFacet(*args, **kwargs):
+    data = kwargs['data']
+    data = data.pivot(index=args[1], columns=args[0], values=args[2])
+    print("------------------------------------")
+    print(data)
+    print("------------------------------------")
+    if "time (ms)" == args[2]:
+        m = data.max().max()
+        fmt = '.2f' if m < 10 else '.1f' if m < 100 else '.0f'
+        g = sns.heatmap(data, cmap='rocket_r', annot=True,
+                        fmt=fmt, annot_kws={"fontsize": 8})
+    else:
+        g = sns.heatmap(data, cmap='rocket', annot=True,
+                        fmt='.2f', annot_kws={"fontsize": 8})
+    g.invert_yaxis()
+    plt.yticks(rotation=0)
 
+
+def easyPlotDataFrame(df, args):
+    title = computeTitleAndLegend(args, df)
     if args.y == "time":
         df['time'] = df['time'] / 1000
         df.rename(columns={'time': 'time (ms)'}, inplace=True)
         args.y = "time (ms)"
 
+    legend = "legend" if "legend" in list(df.columns) else None
+
     if not args.no_sort:
         df = df.sort_values(by=args.y, ascending=False)
 
     if (args.plottype == 'lineplot'):
-        g = sns.FacetGrid(df, row=args.row, col=args.col, hue="legend", sharex='col', sharey='row',
+        g = sns.FacetGrid(df, row=args.row, col=args.col, hue=legend, sharex='col', sharey='row',
                           height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
-
         g.map(sns.lineplot, args.x, args.y, err_style="bars", marker="o")
-        g.set(xscale=args.xscale)
         g.add_legend()
-        if args.x == 'threads':
-            g.set(xlim=(0, None))
+    elif (args.plottype == 'heatmap'):
+        df = df.groupby(complementaryCols([args.y], df), as_index=False).mean()
+        g = sns.FacetGrid(df, row=args.row, col=args.col,
+                          hue=legend, height=args.height, aspect=args.aspect)
+        g = g.map_dataframe(heatFacet, args.x, args.heaty, args.y)
     else:
-        g = sns.catplot(data=df, x=args.x, y=args.y, row=args.row, col=args.col, hue="legend",
+        g = sns.catplot(data=df, x=args.x, y=args.y, row=args.row, col=args.col, hue=legend,
                         kind=args.kind, sharex='col', sharey='row',
                         height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
 
     if args.font_scale != 1.0:
-        sns.set(font_scale=args.font_scale)
-    g.set(yscale=args.yscale)
+        sns.set_context(font_scale=args.font_scale)
+        plt.setp(g._legend.get_texts(), fontsize='11')  # for legend text
+        plt.setp(g._legend.get_title(), fontsize='14')  # for legend title
 
-    if constNum == 0:
-        titre = (u'Courbe de {y} en fonction de {x}').format(
-            x=args.x, y=args.y)
-    else:
-        titre = (u'{cons}').format(x=args.x, y=args.y,
-                                   cons=texteParametresConstants(df, ""))
+    if args.yscale == "log2":
+        plt.yscale("log", base=2)
+    elif args.yscale != "linear":
+        g.set(yscale=args.yscale)
+
+    if args.xscale == "log2":
+        plt.xscale("log", base=2)
+    elif args.xscale != "linear":
+        g.set(xscale=args.xscale)
+
     if not args.hideParameters:
+        g.fig.suptitle(title, wrap=True)
         plt.subplots_adjust(top=args.adjustTop)
-        g.fig.suptitle(titre, wrap=True)
+
     else:
-        print(titre)
+        print(title)
+
+    g.tight_layout()
     return g
 
 
-def parserArguments(argv):
+def parseArguments(argv):
     global parser, args
     parser = argparse.ArgumentParser(
         argv,
@@ -157,16 +203,18 @@ def parserArguments(argv):
         layout https://seaborn.pydata.org/introduction.html''')
 
     all = ["size", "iterations", "kernel", "variant", "threads",
-           "nb_tiles", "schedule", "label", "machine", "tile_size", "tileh", "tilew", "arg"]
+           "nb_tiles", "schedule", "label", "machine", "tile_size", "tileh", "tilew", "arg", "places"]
 
-    parser.add_argument("-x", choices=all+["custom"], default="threads")
+    parser.add_argument("-x", "-heatx", choices=all +
+                        ["custom"], default="threads")
+    parser.add_argument("-heaty", choices=all+["custom"], default=None)
     parser.add_argument(
-        "-y", choices=["time", "speedup", "throughput", "custom"], default="speedup")
+        "-y", choices=["time", "speedup", "throughput", "efficiency", "custom"], default="speedup")
 
     parser.add_argument('-rtv', '--RefTimeVariants',
                         action='store', nargs='+',
                         help="list of variants to take into account to compute the speedUP RefTimes",
-                        default="")
+                        default=[])
 
     parser.add_argument("-C", "--col", choices=all+["custom"], default=None)
     parser.add_argument("-R", "--row", choices=all+["custom"], default=None)
@@ -186,70 +234,80 @@ def parserArguments(argv):
     parser.add_argument('-k', '--kernel',
                         action='store', nargs='+',
                         help="list of kernels to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('-t', '--threads',
-                        action='store', nargs='+',
+                        action='store', nargs='+', type=int,
                         help="list of numbers of threads to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('--delete',
                         action='store', nargs='+',
                         help="delete a column before proceeding data",
                         choices=all,
-                        default=""
+                        default=[]
                         )
 
     parser.add_argument('-v', '--variant',
                         action='store', nargs='+',
                         help="list of variants to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('-th', '--tileh',
-                        action='store', nargs='+',
+                        action='store', nargs='+', type=int,
                         help="list of tile heights to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('-tw', '--tilew',
-                        action='store', nargs='+',
+                        action='store', nargs='+', type=int,
                         help="list of tile widths to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('-nt', '--nb_tiles',
-                        action='store', nargs='+',
+                        action='store', nargs='+', type=int,
                         help="list of nb_tiles to plot",
-                        default="")
+                        default=[])
 
 
 #    parser.add_argument('-ts', '--tile',
-#                        action='store', nargs='*',
+#                        action='store', nargs='*',type=int,
 #                        help="print tile sizes rather than nb_tiles / list of tiles to plot",
 #                        default=None)
 
     parser.add_argument('-m', '--machine',
                         action='store', nargs='+',
                         help="list of machines to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('-i', '--iterations',
-                        action='store', nargs='+',
+                        action='store', nargs='+', type=int,
                         help="list of iterations to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('-sc', '--schedule',
                         action='store', nargs='+',
                         help="list of schedule policies to plot",
-                        default="")
+                        default=[])
+
+    parser.add_argument('--places',
+                        action='store', nargs='+',
+                        help="list of schedule policies to plot",
+                        default=[])
+
+    parser.add_argument('--arg',
+                        action='store', nargs='+',
+                        help="list of arg value to plot",
+                        default=[])
 
     parser.add_argument('-s', '--size',
-                        action='store', nargs='+',
+                        action='store', nargs='+', type=int,
                         help="list of sizes to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('-lb', '--label',
                         action='store', nargs='+',
                         help="list of labels to plot",
-                        default="")
+                        default=[])
 
     parser.add_argument('--height',
                         action='store',
@@ -276,7 +334,7 @@ def parserArguments(argv):
                         action='store',
                         type=float,
                         help="to adjust the space for the suptitle",
-                        default=.9)
+                        default=1)
 
     parser.add_argument('--aspect',
                         action='store',
@@ -296,17 +354,17 @@ def parserArguments(argv):
                         default=False)
 
     parser.add_argument('--yscale',
-                        choices=["linear", "log", "symlog", "logit"],
+                        choices=["linear", "log", "log2", "symlog", "logit"],
                         action='store',
                         default="linear")
 
     parser.add_argument('--xscale',
-                        choices=["linear", "log", "symlog", "logit"],
+                        choices=["linear", "log", "log2", "symlog", "logit"],
                         action='store',
                         default="linear")
 
     parser.add_argument('--plottype',
-                        choices=['lineplot', 'catplot'],
+                        choices=['lineplot', 'catplot', 'heatmap'],
                         action='store',
                         default="lineplot")
 
@@ -321,20 +379,23 @@ def parserArguments(argv):
     return args
 
 
-def lireDataFrame(args):
+def getDataFrame(args):
     # Lecture du fichier d'experiences:
     df = openfile(args.input, sepa=";")
 
-    if args.kernel != "":
+    if args.kernel != []:
         df = df[df.kernel.isin(args.kernel)].reset_index(drop=True)
 
-    if args.iterations != "":
+    if args.arg != []:
+        df = df[df.arg.isin(args.arg)].reset_index(drop=True)
+
+    if args.iterations != []:
         df = df[df.iterations.isin(args.iterations)].reset_index(drop=True)
 
-    if args.size != "":
+    if args.size != []:
         df = df[df["size"].isin(args.size)].reset_index(drop=True)
 
-    if args.machine != "":
+    if args.machine != []:
         df = df[df.machine.isin(args.machine)].reset_index(drop=True)
 
     if args.delete != []:
@@ -342,29 +403,38 @@ def lireDataFrame(args):
             del df[attr]
 
     if args.y == "speedup":
-        df = creationRefSpeedUp(df, args)
+        df = computeSpeedUpAttr(df, args)
 
-    if args.label != "":
+    if args.y == "efficiency":
+        df = computeSpeedUpAttr(df, args)
+        df['efficiency'] = df['speedup'] / df['threads']
+        del df['speedup']
+
+    if args.label != []:
         df = df[df.label.isin(args.label)].reset_index(drop=True)
 
-    if args.schedule != "":
+    if args.schedule != []:
         df = df[df.schedule.isin(args.schedule)].reset_index(drop=True)
 
-    if args.threads != "":
+    if args.places != []:
+        df = df[df.places.isin(args.places)].reset_index(drop=True)
+
+    if args.threads != []:
         df = df[df.threads.isin(args.threads)].reset_index(drop=True)
 
-    if args.variant != "":
+    if args.variant != []:
         df = df[df.variant.isin(args.variant)].reset_index(drop=True)
 
-    if args.tileh != "":
+    if args.tileh != []:
         df = df[df.tileh.isin(args.tileh)].reset_index(drop=True)
 
-    if args.tilew != "":
+    if args.tilew != []:
         df = df[df.tilew.isin(args.tilew)].reset_index(drop=True)
 
-    if args.nb_tiles == "":
-        if not ('tileh' in [args.col, args.row, args.x] or 'tilew' in [args.col, args.row, args.x]):
-            df['tile'] = df.tileh.map(str) + '$\\times$' + df.tilew.map(str)
+    if args.nb_tiles == []:
+        if not ('tileh' in [args.col, args.row, args.x, args.heaty] or 'tilew' in [args.col, args.row, args.x,  args.heaty]):
+            df['tile_size'] = df.tileh.map(
+                str) + '$\\times$' + df.tilew.map(str)
             del df['tileh']
             del df['tilew']
     else:
@@ -384,14 +454,14 @@ def lireDataFrame(args):
         df[args.y] = (df['size'] ** 2) * df['iterations'] / df['time']
 
     if df.empty:
-        print("No data")
-        exit()
+        sys.exit("No data")
 
     # remove empty columns
-    return df.dropna(axis=1, how='all')
+    df = df.dropna(axis=1, how='all')
+    return df.replace({None: "none"})
 
 
-def engeristrerGraphique(fig):
+def savePlotAsPDF(fig):
     pp = PdfPages(args.output)
     plt.savefig(pp, format='pdf')
     pp.close()
