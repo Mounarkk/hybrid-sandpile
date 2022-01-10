@@ -95,10 +95,17 @@ def computeSpeedUpAttr(df, args):  # Automatise la creation du speedup
     group = ['machine', 'size', 'kernel', 'iterations', 'arg']
     group = [
         attr for attr in group if attr not in args.delete and attr in list(df.columns)]
-    if args.RefTimeVariants == []:
+    if args.RefTimeVariants == [] and args.RefTimeTiling == [] :
         refDF = df[df.threads == 1].reset_index(drop=True)
+    elif args.RefTimeTiling == []:
+               refDF = df[df.variant.isin(args.RefTimeVariants)
+                   & df.threads == 1].reset_index(drop=True)
+    elif args.RefTimeVariants == []:
+               refDF = df[df.tiling.isin(args.RefTimeTiling)
+                   & df.threads == 1].reset_index(drop=True)    
     else:
         refDF = df[df.variant.isin(args.RefTimeVariants)
+                   &  df.tiling.isin(args.RefTimeTiling)
                    & df.threads == 1].reset_index(drop=True)
     if refDF.empty:
         sys.exit("No row with OMP_NUM_THREADS=1 to compute speedUP")
@@ -202,7 +209,7 @@ def parseArguments(argv):
         and to those of seaborn for all aspects of graphic
         layout https://seaborn.pydata.org/introduction.html''')
 
-    all = ["size", "iterations", "kernel", "variant", "threads",
+    all = ["size", "iterations", "kernel", "variant", "tiling", "threads",
            "nb_tiles", "schedule", "label", "machine", "tile_size", "tileh", "tilew", "arg", "places"]
 
     parser.add_argument("-x", "-heatx", choices=all +
@@ -214,6 +221,11 @@ def parseArguments(argv):
     parser.add_argument('-rtv', '--RefTimeVariants',
                         action='store', nargs='+',
                         help="list of variants to take into account to compute the speedUP RefTimes",
+                        default=[])
+    
+    parser.add_argument('-rtt', '--RefTimeTiling',
+                        action='store', nargs='+',
+                        help="list of tiling functions to take into account to compute the speedUP RefTimes",
                         default=[])
 
     parser.add_argument("-C", "--col", choices=all+["custom"], default=None)
@@ -251,6 +263,11 @@ def parseArguments(argv):
     parser.add_argument('-v', '--variant',
                         action='store', nargs='+',
                         help="list of variants to plot",
+                        default=[])
+
+    parser.add_argument('-wt', '--tiling',
+                        action='store', nargs='+',
+                        help="list of tile functions to plot",
                         default=[])
 
     parser.add_argument('-th', '--tileh',
@@ -424,6 +441,9 @@ def getDataFrame(args):
 
     if args.variant != []:
         df = df[df.variant.isin(args.variant)].reset_index(drop=True)
+
+    if args.tiling != []:
+        df = df[df.tiling.isin(args.tiling)].reset_index(drop=True)
 
     if args.tileh != []:
         df = df[df.tileh.isin(args.tileh)].reset_index(drop=True)
