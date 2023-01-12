@@ -199,10 +199,11 @@ def multiple_lineplots(args,df,g):
             g._legend.legendHandles.append(mlines.Line2D([], [], color='black', linestyle=linestyle_str[i], label= " " + args.all_y[i]))
             g._legend.texts.append(plt.text(0,0," " + args.all_y[i],visible=False))
 
-        if len(g._legend.legendHandles) == len(args.all_y): 
-            sns.move_legend(g,"lower center", bbox_to_anchor=[0.5,-0.009], ncol= len(args.all_y), title=None, frameon=False)
-        else:
-            sns.move_legend(g,"center right")
+        if sns.__version__ >= '0.11.2' :
+            if len(g._legend.legendHandles) == len(args.all_y): 
+                sns.move_legend(g,"lower center", bbox_to_anchor=[0.5,-0.009], ncol= len(args.all_y), title=None, frameon=False)
+            else:
+                sns.move_legend(g,"center right")
         return g
 
 
