@@ -140,8 +140,8 @@ def heatFacet(*args, **kwargs):
     print("------------------------------------")
     print(data)
     print("------------------------------------")
+    m = data.max().max()
     if "time (ms)" == args[2]:
-        m = data.max().max()
         fmt = '.2f' if m < 10 else '.1f' if m < 100 else '.0f'
         g = sns.heatmap(data, cmap='rocket_r', annot=True,
                         fmt=fmt, annot_kws={"fontsize": 8})
@@ -220,7 +220,7 @@ def easyPlotDataFrame(df, args):
                           height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
         g = multiple_lineplots(args,df,g)
     elif (args.plottype == 'heatmap'):
-        df = df.groupby(complementaryCols([args.y], df), as_index=False).mean()
+        df = df.groupby(complementaryCols(args.y, df), as_index=False).mean()
         g = sns.FacetGrid(df, row=args.row, col=args.col,
                           hue=legend, height=args.height, aspect=args.aspect)
         g = g.map_dataframe(heatFacet, args.x, args.heaty, args.y)
