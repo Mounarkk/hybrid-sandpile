@@ -225,7 +225,7 @@ def easyPlotDataFrame(df, args):
                           hue=legend, height=args.height, aspect=args.aspect)
         g = g.map_dataframe(heatFacet, args.x, args.heaty, args.y)
     else:
-        g = sns.catplot(data=df, x=args.x, y=args.y, row=args.row, col=args.col, hue=legend,
+        g = sns.catplot(data=df, x=args.x, y=args.y[0], row=args.row, col=args.col, hue=legend,
                         kind=args.kind, sharex='col', sharey='row',
                         height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
 
