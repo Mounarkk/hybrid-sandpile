@@ -81,6 +81,8 @@ def computeTitleAndLegend(args, df):
     if attr != []:
         df['legend'] = df[attr].apply(
             lambda row: shuffle(attr, row.values.tolist()), axis=1)
+        for col in attr :
+            del df[col]
     return title
 
 
@@ -208,6 +210,10 @@ def multiple_lineplots(args,df,g):
 
 
 def easyPlotDataFrame(df, args):
+    with sns.plotting_context("paper", font_scale=args.font_scale):
+        pc_easyPlotDataFrame(df, args)
+
+def pc_easyPlotDataFrame(df, args):
     title = computeTitleAndLegend(args, df)
 
     legend = "legend" if "legend" in list(df.columns) else None
@@ -224,15 +230,30 @@ def easyPlotDataFrame(df, args):
         g = sns.FacetGrid(df, row=args.row, col=args.col,
                           hue=legend, height=args.height, aspect=args.aspect)
         g = g.map_dataframe(heatFacet, args.x, args.heaty, args.y)
+
+        # actually catplot raise an exception whenever args.kind in ["swarm","strip"] 
+        # instead we map their associated function thanks to FacetGrid  
+        # seaborn 0.12.2  matplotlib 3.6.3 & 3.7.1
+    elif  args.kind in ["swarm","strip"] :
+        funToMpap = sns.stripplot if args.kind == "strip" else sns.swarmplot
+        g = sns.FacetGrid(df, row=args.row, col=args.col, sharex='col', sharey='row',
+                            margin_titles=True, legend_out=not args.legendInside,
+                          hue=legend, height=args.height, aspect=args.aspect)
+        g = g.map_dataframe(funToMpap, args.x , args.y[0])
+        g.add_legend()
+
     else:
         g = sns.catplot(data=df, x=args.x, y=args.y[0], row=args.row, col=args.col, hue=legend,
                         kind=args.kind, sharex='col', sharey='row',
                         height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
 
-    if args.font_scale != 1.0:
-        sns.set_context(font_scale=args.font_scale)
-        plt.setp(g._legend.get_texts(), fontsize='11')  # for legend text
-        plt.setp(g._legend.get_title(), fontsize='14')  # for legend title
+    if args.comment != None:
+        title += args.comment
+    if not args.hideParameters:
+        g.fig.suptitle(title, wrap=True, y=0.999) # wrap does not perform well whenever y=1 !
+        plt.subplots_adjust(top=args.adjustTop)
+    else:
+        print(title)
 
     if args.yscale == "log2":
         plt.yscale("log", base=2)
@@ -244,15 +265,10 @@ def easyPlotDataFrame(df, args):
     elif args.xscale != "linear":
         g.set(xscale=args.xscale)
 
-    if args.comment != None:
-        title += args.comment
-    if not args.hideParameters:
-        g.fig.suptitle(title, wrap=True)
-        plt.subplots_adjust(top=args.adjustTop)
+    if args.plottype == 'heatmap':
+        g.tight_layout(rect=[0, 0.03, 1, args.adjustTop])
     else:
-        print(title)
-
-    g.tight_layout()
+        g.tight_layout()
     return g
 
 
