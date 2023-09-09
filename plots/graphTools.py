@@ -1,23 +1,32 @@
 # coding: 8859
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category=RuntimeWarning)
+
+
 import argparse
 import pandas as pds
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
+import matplotlib.patches as mpatches
 import os
 from pathlib import Path
 import sys
 import textwrap
+from matplotlib.lines import Line2D
 
 
-def openfile(path="./plots/data/perf_data.csv", sepa=";"):
+
+def openfile(path="./data/perf/data.csv", sepa=";"):
     try:
         return pds.read_csv(path, sep=sepa)
     except FileNotFoundError:
         print("File not found: ", path, file=sys.stderr)
         sys.exit(1)
 
-# Donne tous les champs de df qui ne sont pas listés
+# Donne tous les champs de df qui ne sont pas listï¿½s
 
 
 def complementaryCols(listeAttr, df):
@@ -55,13 +64,13 @@ def factorizeLegendColRow(axisCol, args, axisAttr, df):
 
 
 def computeTitleAndLegend(args, df):
-    axisAttr = [args.x, args.y, args.col, args.row, args.heaty]
+    axisAttr = [args.x,  args.col, args.row, args.heaty] + args.all_y
     constantParameters = constantCols(df)
     if len(constantParameters) == 0:
         title = (u'Courbe de {y} en fonction de {x}').format(
-            x=args.x, y=args.y)
+            x=args.x, y=args.all_y)
     else:
-        title = (u'{cons}').format(x=args.x, y=args.y,
+        title = (u'{cons}').format(x=args.x, y=args.all_y,
                                    cons=textForConstantParameters(df, constantParameters))
         for col in constantParameters:
             if not col in axisAttr:
@@ -75,6 +84,8 @@ def computeTitleAndLegend(args, df):
     if attr != []:
         df['legend'] = df[attr].apply(
             lambda row: shuffle(attr, row.values.tolist()), axis=1)
+        for col in attr :
+            del df[col]
     return title
 
 
@@ -120,7 +131,7 @@ def computeSpeedUpAttr(df, args):  # Automatise la creation du speedup
     df = df.merge(refDF, how='inner')
 
     df['speedup'] = df['refTime'] / df['time']
-    del df['time']
+
     if args.noRefTime:
         del df['refTime']
     else:
@@ -134,8 +145,8 @@ def heatFacet(*args, **kwargs):
     print("------------------------------------")
     print(data)
     print("------------------------------------")
+    m = data.max().max()
     if "time (ms)" == args[2]:
-        m = data.max().max()
         fmt = '.2f' if m < 10 else '.1f' if m < 100 else '.0f'
         g = sns.heatmap(data, cmap='rocket_r', annot=True,
                         fmt=fmt, annot_kws={"fontsize": 8})
@@ -147,37 +158,105 @@ def heatFacet(*args, **kwargs):
     plt.yticks(rotation=0)
 
 
+axes ={}
+def twin_lineplot(x,y,**kwargs):
+    ax = plt.gca()
+    mini=kwargs.pop('mini')
+    maxi=kwargs.pop('maxi')
+    if 'label' in  kwargs.keys() :
+        kwargs.pop('label')
+    #if ax.xaxis not in axes.keys(): # utilitÃ© du test ???
+    axes[ax.axis] = ax.twinx()
+    axes[ax.axis].set(ylim=(mini,maxi) )
+    sns.lineplot(x=x,y=y,ax=axes[ax.axis],label='_nolegend_',**kwargs)
+    axes[ax.axis].set_ylabel("")
+    axes[ax.axis].grid(visible=None)
+    axes[ax.axis].tick_params(axis='y',labelsize=8)
+
+def multiple_lineplots(args,df,g):
+ 
+        linestyle_str = [ 'solid', 'dotted', 'dashed', 'dashdot',(0, (3, 1, 1, 1))]
+        for  i in range(len(args.y)):
+            g.map(sns.lineplot, args.x, args.y[i],err_style="bars", linestyle=linestyle_str[i])
+
+        for i in range(len(args.y2)):
+            mini = min(0,df[args.y2].min().min())
+            maxi = df[args.y2].max().max()
+            g.map(twin_lineplot, args.x, args.y2[i], err_style="bars", linestyle=linestyle_str[len(args.y) + i],mini=mini,maxi=maxi)
+
+        g.set_axis_labels(x_var=args.x, y_var=args.y[0] if args.ylabel == None else args.ylabel, clear_inner=True)#
+
+
+        g.add_legend()
+        l = g._legend.legendHandles
+
+        for ax in g.axes.flat:
+            if ax.texts:
+                txt = ax.texts[0]
+                ax.text(txt.get_unitless_position()[0]+0.1, txt.get_unitless_position()[1],
+                txt.get_text(),
+                transform=ax.transAxes,
+                va='center',fontsize='medium',
+                rotation=-90)
+                ax.texts[0].remove()
+
+        for i in range(len(args.all_y)):
+            g._legend.legendHandles.append(mlines.Line2D([], [], color='black', linestyle=linestyle_str[i], label= " " + args.all_y[i]))
+            g._legend.texts.append(plt.text(0,0," " + args.all_y[i],visible=False))
+
+        if sns.__version__ >= '0.11.2' :
+            if len(g._legend.legendHandles) == len(args.all_y): 
+                sns.move_legend(g,"lower center", bbox_to_anchor=[0.5,-0.009], ncol= len(args.all_y), title=None, frameon=False)
+            else:
+                sns.move_legend(g,"center right")
+        return g
+
+
 def easyPlotDataFrame(df, args):
+    with sns.plotting_context("paper", font_scale=args.font_scale):
+        pc_easyPlotDataFrame(df, args)
+
+def pc_easyPlotDataFrame(df, args):
     title = computeTitleAndLegend(args, df)
-    if args.y == "time":
-        df['time'] = df['time'] / 1000
-        df.rename(columns={'time': 'time (ms)'}, inplace=True)
-        args.y = "time (ms)"
 
     legend = "legend" if "legend" in list(df.columns) else None
 
     if not args.no_sort:
-        df = df.sort_values(by=args.y, ascending=False)
+        df = df.sort_values(by=args.all_y[0], ascending=False)
 
-    if (args.plottype == 'lineplot'):
+    if (args.plottype == 'lineplot'): 
         g = sns.FacetGrid(df, row=args.row, col=args.col, hue=legend, sharex='col', sharey='row',
                           height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
-        g.map(sns.lineplot, args.x, args.y, err_style="bars", marker="o")
-        g.add_legend()
+        g = multiple_lineplots(args,df,g)
     elif (args.plottype == 'heatmap'):
-        df = df.groupby(complementaryCols([args.y], df), as_index=False).mean()
+        df = df.groupby(complementaryCols(args.y, df), as_index=False).mean()
         g = sns.FacetGrid(df, row=args.row, col=args.col,
                           hue=legend, height=args.height, aspect=args.aspect)
-        g = g.map_dataframe(heatFacet, args.x, args.heaty, args.y)
-    else:
-        g = sns.catplot(data=df, x=args.x, y=args.y, row=args.row, col=args.col, hue=legend,
-                        kind=args.kind, sharex='col', sharey='row',
-                        height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect)
+        g = g.map_dataframe(heatFacet, args.x, args.heaty, args.y[0])
 
-    if args.font_scale != 1.0:
-        sns.set_context(font_scale=args.font_scale)
-        plt.setp(g._legend.get_texts(), fontsize='11')  # for legend text
-        plt.setp(g._legend.get_title(), fontsize='14')  # for legend title
+        # actually catplot raise an exception whenever args.kind in ["swarm","strip"] 
+        # instead we map their associated function thanks to FacetGrid  
+        # seaborn 0.12.2  matplotlib 3.6.3 & 3.7.1
+    elif  args.kind in ["swarm","strip"] :
+        funToMpap = sns.stripplot if args.kind == "strip" else sns.swarmplot
+        g = sns.FacetGrid(df, row=args.row, col=args.col, sharex='col', sharey='row',
+                            margin_titles=True, legend_out=not args.legendInside,
+                          hue=legend, height=args.height, aspect=args.aspect)
+        g = g.map_dataframe(funToMpap, args.x , args.y[0])
+        g.add_legend()
+
+    else:
+        g = sns.catplot(data=df, x=args.x, y=args.y[0], row=args.row, col=args.col, hue=legend,
+                        kind=args.kind, sharex='col', sharey='row',
+                        height=args.height, margin_titles=True, legend_out=not args.legendInside, aspect=args.aspect, markers=Line2D.filled_markers)
+
+    if args.comment != None:
+        title += args.comment
+    if not args.hideParameters:
+        g.fig.suptitle(title, wrap=True, y=0.999) # wrap does not perform well whenever y=1 !
+        plt.subplots_adjust(top=args.adjustTop)
+    else:
+        print(title)
 
     if args.yscale == "log2":
         plt.yscale("log", base=2)
@@ -189,22 +268,17 @@ def easyPlotDataFrame(df, args):
     elif args.xscale != "linear":
         g.set(xscale=args.xscale)
 
-    if args.comment != None:
-        title += args.comment
-    if not args.hideParameters:
-        g.fig.suptitle(title, wrap=True)
-        plt.subplots_adjust(top=args.adjustTop)
+    if args.plottype == 'heatmap':
+        g.tight_layout(rect=[0, 0.03, 1, args.adjustTop])
     else:
-        print(title)
-
-
-
-    g.tight_layout()
+        g.tight_layout()
     return g
 
 
-def parseArguments(argv):
-    global parser, args
+perfAttr = ["time", "l1hits", "l2hits", "l3hits", "dramhits"]
+
+def parseArguments(argv, computed_attr={}):
+    global parser, args, perfAttr
     parser = argparse.ArgumentParser(
         argv,
         description='''Process performance plots.
@@ -216,17 +290,32 @@ def parseArguments(argv):
     all = ["size", "iterations", "kernel", "variant", "tiling", "threads",
            "nb_tiles", "schedule", "label", "machine", "tile_size", "tileh", "tilew", "arg", "places"]
 
+    perfAttr += list(computed_attr.keys())
+
     parser.add_argument("-x", "-heatx", choices=all +
                         ["custom"], default="threads")
     parser.add_argument("-heaty", choices=all+["custom"], default=None)
-    parser.add_argument(
-        "-y", choices=["time", "speedup", "throughput", "efficiency", "custom"], default="speedup")
+    parser.add_argument("-y", "-y1",
+                        action='store', nargs='+',
+                        choices= perfAttr + ["speedup", "throughput", "efficiency"], 
+                        default=["speedup"])
+
+    parser.add_argument("--ylabel",
+                        action='store', nargs='?', 
+                        default=None)
+
+    parser.add_argument("-y2",
+                        action='store', nargs='+',
+                        choices= perfAttr + [ "speedup", "throughput", "efficiency"]+list(computed_attr.keys()) ,
+                        default=[])
+
+
 
     parser.add_argument('-rtv', '--RefTimeVariants',
                         action='store', nargs='+',
                         help="list of variants to take into account to compute the speedUP RefTimes",
                         default=[])
-    
+
     parser.add_argument('-rtt', '--RefTimeTiling',
                         action='store', nargs='+',
                         help="list of tiling functions to take into account to compute the speedUP RefTimes",
@@ -243,8 +332,8 @@ def parseArguments(argv):
     parser.add_argument('-if', '--input',
                         action='store', nargs='?',
                         help="Data's filename",
-                        const=os.getcwd() + "/plots/data/perf_data.csv",
-                        default=os.getcwd() + "/plots/data/perf_data.csv")
+                        const=os.getcwd() + "/data/perf/data.csv",
+                        default=os.getcwd() + "/data/perf/data.csv")
 
     parser.add_argument('-k', '--kernel',
                         action='store', nargs='+',
@@ -401,7 +490,17 @@ def parseArguments(argv):
                         default=None)
 
     args = parser.parse_args()
+    args.computed_attr = computed_attr
     return args
+
+
+def substitute_attr_y(args,src,dst):
+    if src in args.y :
+        i = args.y.index(src)
+        args.y = args.y[:i]+[dst]+ args.y[i+1:]
+    if src in args.y2 :
+        i = args.y2.index(src)
+        args.y2 = args.y2[:i]+[dst]+ args.y2[i+1:]
 
 
 def getDataFrame(args):
@@ -423,17 +522,39 @@ def getDataFrame(args):
     if args.machine != []:
         df = df[df.machine.isin(args.machine)].reset_index(drop=True)
 
+    df = df.assign(**args.computed_attr)
+
     if args.delete != []:
         for attr in args.delete:
             del df[attr]
 
-    if args.y == "speedup":
+    args.all_y =  args.y + args.y2
+
+    if  "speedup" in args.all_y:
         df = computeSpeedUpAttr(df, args)
 
-    if args.y == "efficiency":
-        df = computeSpeedUpAttr(df, args)
-        df['efficiency'] = df['speedup'] / df['threads']
-        del df['speedup']
+    if "efficiency" in args.all_y:
+        if  "speedup" not in args.all_y :
+            df = computeSpeedUpAttr(df, args)
+            df['efficiency'] = df['speedup'] / df['threads']
+            del df['speedup']
+        else :
+            df['efficiency'] = df['speedup'] / df['threads']
+
+    if "throughput" in args.all_y:
+        substitute_attr_y(args, 'throughput','throughput (MPixel / s)')
+        df['throughput (MPixel / s)'] = (df['size'] ** 2) * df['iterations'] / df['time']
+
+    for attr in perfAttr :
+        if attr not in args.all_y:
+            del df[attr]
+
+    if "time" in args.all_y :
+        df['time'] = df['time'] / 1000
+        df.rename(columns={'time': 'time (ms)'}, inplace=True)
+        substitute_attr_y(args,'time',"time (ms)")
+
+    args.all_y = args.y + args.y2
 
     if args.label != []:
         df = df[df.label.isin(args.label)].reset_index(drop=True)
@@ -477,10 +598,6 @@ def getDataFrame(args):
             del df['tilew']
             del df['nb_tileh']
             del df['nb_tilew']
-
-    if args.y == "throughput":
-        args.y = 'throughput (MPixel / s)'
-        df[args.y] = (df['size'] ** 2) * df['iterations'] / df['time']
 
     if df.empty:
         sys.exit("No data")
