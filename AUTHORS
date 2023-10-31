@@ -1,0 +1,17 @@
+Copyright (c) 2019 University of Bordeaux & Inria
+
+SPDX-License-Identifier: BSD-3-Clause
+--------------------------------------------------
+
+The EasyPAP software was originally developed by the following people:
+
+Raymond Namyst          University of Bordeaux      raymond.namyst@u-bordeaux.fr
+Pierre-André Wacrenier  University of Bordeaux      pierre-andre.wacrenier@u-bordeaux.fr
+Alice Lasserre          Inria                       alice.lasserre@inria.fr
+
+Several extensions were brought by enthusiasts contributors:
+
+Adrien Cassagne         Sorbonne University
+Théo Gransart           University of Bordeaux
+Charles Martin          Bordeaux INP
+
