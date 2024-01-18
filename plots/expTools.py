@@ -3,22 +3,22 @@ from itertools import *
 import subprocess
 
 
-def iterateur_option(dicopt):
+def iterateur_option(dicopt, sep =' '):
     options = []
     for opt, listval in dicopt.items():
         optlist = []
         for val in listval:
-            optlist += [opt + str(val)]
+            optlist += [opt + sep + str(val)]
         options += [optlist]
     for value in product(*options):
         yield ' '.join(value)
 
 
-def execute(commande, ompenv, option, nbrun=1, verbose=True, easyPath='.'):
+def execute(commande, ompenv, option, nbruns=1, verbose=True, easyPath='.'):
     path = os.getcwd()
     os.chdir(easyPath)
-    for i in range(nbrun):
-        for omp in iterateur_option(ompenv):
+    for i in range(nbruns):
+        for omp in iterateur_option(ompenv,"="):
             for opt in iterateur_option(option):
                 if (verbose):
                     print(omp + " " + commande + " -n " + opt)
