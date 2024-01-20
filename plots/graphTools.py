@@ -22,11 +22,11 @@ from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedLocator
 
 
-def verbose(str, text=""):
+def verbose(text, arg):
     global args
     if args.verbose:
         print("--------------" + text + "-------------------")
-        print(str)
+        print(arg)
 
 
 def openfile(path="./data/perf/data.csv", sepa=";"):
@@ -163,6 +163,8 @@ def computeSpeedUpAttr(df, args):  # Automatise la creation du speedup
         refDF.groupby(group).time.idxmin()
     ]  # .reset_index(drop=True, inplace=True)
     refDF = refDF.rename(columns={"time": "refTime"})
+    verbose("Speed-up references ", refDF)
+
     df = df.merge(refDF, how="inner")
 
     df["speedup"] = df["refTime"] / df["time"]
@@ -177,7 +179,7 @@ def computeSpeedUpAttr(df, args):  # Automatise la creation du speedup
 def heatFacet(*args, **kwargs):
     data = kwargs["data"]
     data = data.pivot(index=args[1], columns=args[0], values=args[2])
-    verbose(data, "heatmap data")
+    verbose("heatmap data", data)
     m = data.max().max()
     if "time (ms)" == args[2]:
         fmt = ".2f" if m < 10 else ".1f" if m < 100 else ".0f"
@@ -386,27 +388,28 @@ def easyPlotDataFrame(df, args):
 
 def pc_easyPlotDataFrame(df, args):
     title = computeTitleAndLegend(args, df)
-    verbose(title, "Constant parameters")
+    verbose("Constant parameters", title)
 
     if not args.noSort:
         df = df.sort_values(by=args.all_y[0], ascending=False)
 
-    verbose(df, "Data frame with legend")
+    verbose("Data frame with legend", df)
 
     legend = "legend" if "legend" in list(df.columns) else None
     nbLegendEntries = 1 if legend is None else len(df[legend].unique())
 
-    if nbLegendEntries == 1 and args.y2 == []:
-        df = pds.melt(
-            df,
-            var_name="legend",
-            value_name="value",
-            id_vars=args.x,
-            value_vars=args.y + args.y2,
-        )
-        legend = "legend"
-
     if args.plottype == "lineplot":
+        if nbLegendEntries == 1 and args.y2 == []:
+            df = pds.melt(
+                df,
+                var_name="legend",
+                value_name="value",
+                id_vars=[x for x in [args.x, args.col, args.row] if x is not None],
+                value_vars=args.y,
+            )
+            legend = "legend"
+            verbose("Data frame melted", df)
+
         kwargs, args.unknown_args = updateFunParameters(
             sns.FacetGrid,
             args.unknown_args,
@@ -521,9 +524,12 @@ def parseArguments(argv, derived_perf={}, derived_attr={}):
         action="store",
         nargs="?",
         help="Data's filename",
-        # const=os.getcwd() + "/plots/data/perf_data.csv",
-        default=os.getcwd() + "/plots/data/perf_data.csv",
+        default=os.getcwd() + "/data/perf/data.csv",
     )
+    parseOnlyInputFile.add_argument(  # => -i is not an abbrev. of -if
+        "-i", action="store", type=int, nargs="+", default=[]
+    )
+
     args, unknown_args = parseOnlyInputFile.parse_known_args()
 
     all = (
@@ -573,8 +579,7 @@ Catplot's arguments [https://seaborn.pydata.org/generated/seaborn.catplot.html]:
         action="store",
         nargs="?",
         help="Data's filename",
-        # const=os.getcwd() + "/plots/data/perf_data.csv",
-        default=os.getcwd() + "/plots/data/perf_data.csv",
+        default=os.getcwd() + "/data/perf/data.csv",
     )
 
     delete.add_argument("--delete", action="store", nargs="*", choices=all, default=[])
@@ -582,7 +587,7 @@ Catplot's arguments [https://seaborn.pydata.org/generated/seaborn.catplot.html]:
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="turn into verbose mode",
+        help="turn on verbose mode",
         default=False,
     )
 
@@ -752,7 +757,7 @@ def getDataFrame(args):
     # Lecture du fichier d'experiences:
     df = openfile(args.input, sepa=";")
 
-    verbose(df,"Initial data frame")
+    verbose("Initial data frame", df)
     # Do not delete row that may contain sequential best perf
     filters = {
         "kernel": args.kernel,
@@ -838,7 +843,7 @@ def getDataFrame(args):
 
     # remove empty columns
     df = df.dropna(axis=1, how="all")
-    verbose(df,"Selected data frame")
+    verbose("Selected data frame", df)
 
     return df.replace({None: "none"})
 
