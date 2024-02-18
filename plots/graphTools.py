@@ -387,7 +387,7 @@ def easyPlotDataFrame(df, args):
 
 
 def pc_easyPlotDataFrame(df, args):
-    title = computeTitleAndLegend(args, df)
+    title = computeTitleAndLegend(args, df) + "(" + str(df.shape[0]) + " exp.)"
     verbose("Constant parameters", title)
 
     if not args.noSort:
@@ -409,7 +409,7 @@ def pc_easyPlotDataFrame(df, args):
             )
             legend = "legend"
             verbose("Data frame melted", df)
-
+        
         kwargs, args.unknown_args = updateFunParameters(
             sns.FacetGrid,
             args.unknown_args,
@@ -418,6 +418,7 @@ def pc_easyPlotDataFrame(df, args):
             margin_titles=True,
             legend_out=True,
         )
+        verbose("FacetGrit kwargs", kwargs)
         g = sns.FacetGrid(df, hue=legend, **kwargs)
         if nbLegendEntries == 1 and args.y2 == []:
             g = single_entry_lineplots(args, df, g)
@@ -436,6 +437,8 @@ def pc_easyPlotDataFrame(df, args):
             margin_titles=True,
             legend_out=True,
         )
+        verbose("FacetGrit kwargs", kwargs)
+
         g = sns.FacetGrid(df, hue=legend, **kwargs)
         g = g.map_dataframe(heatFacet, args.x, args.heaty, args.y[0])
 
@@ -449,6 +452,7 @@ def pc_easyPlotDataFrame(df, args):
             sharex=args.row != None,
             sharey=args.col != None,
         )
+        verbose("catplot kwargs", kwargs)
 
         g = sns.catplot(
             data=df,
@@ -526,7 +530,7 @@ def parseArguments(argv, derived_perf={}, derived_attr={}):
         help="Data's filename",
         default=os.getcwd() + "/data/perf/data.csv",
     )
-    parseOnlyInputFile.add_argument(  # => -i is not an abbrev. of -if
+    parseOnlyInputFile.add_argument( # => -i is not an abbrev. of -if 
         "-i", action="store", type=int, nargs="+", default=[]
     )
 
@@ -703,7 +707,7 @@ Catplot's arguments [https://seaborn.pydata.org/generated/seaborn.catplot.html]:
             opt,
             choices=["linear", "log", "log2", "symlog", "logit"],
             action="store",
-            default="linear",
+            default=None,
         )
 
     axes.add_argument(
