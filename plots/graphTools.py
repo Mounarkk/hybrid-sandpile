@@ -156,6 +156,7 @@ def computeSpeedUpAttr(df, args):  # Automatise la creation du speedup
     if refDF.empty:
         sys.exit("No row with OMP_NUM_THREADS=1 to compute speedUP")
 
+
     for i in complementaryCols(group + ["time"], refDF):
         del refDF[i]
 
