@@ -31,6 +31,6 @@ __kernel void ssandPile_update_texture (__global unsigned *cur, __write_only ima
   else if (c > 4)
     r = v = b = (2 * c);
 
-  c = rgba(r, v, b, 0xFF);
-  write_imagef (tex, pos, color_scatter (c));
+  c = rgb (r, v, b);
+  write_imagef (tex, pos, color_to_float4 (c));
 }
