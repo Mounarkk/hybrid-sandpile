@@ -9,6 +9,7 @@ __kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out)
   //TODO
 }
 
+#ifdef GL_BUFFER_SHARING
 
 // DO NOT MODIFY: this kernel updates the OpenGL texture buffer
 // This is a ssandPile-specific version (generic version is defined in common.cl)
@@ -34,3 +35,5 @@ __kernel void ssandPile_update_texture (__global unsigned *cur, __write_only ima
   c = rgb (r, v, b);
   write_imagef (tex, pos, color_to_float4 (c));
 }
+
+#endif
