@@ -11,6 +11,7 @@ import pandas as pds
 import numpy as np
 import random
 import seaborn as sns
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
@@ -20,6 +21,7 @@ import sys
 import textwrap
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FixedLocator
+from packaging import version
 
 
 def verbose(text, arg):
@@ -183,15 +185,12 @@ def heatFacet(*args, **kwargs):
     verbose("heatmap data", data)
     m = data.max().max()
     if "time (ms)" == args[2]:
+        cmap = "rocket_r"
         fmt = ".2f" if m < 10 else ".1f" if m < 100 else ".0f"
-        g = sns.heatmap(
-            data, cmap="rocket_r", annot=True, fmt=fmt, annot_kws={"fontsize": 8}
-        )
     else:
+        cmap = "rocket"
         fmt = ".2f" if m < 1 else ".1f" if m < 10 else ".0f"
-        g = sns.heatmap(
-            data, cmap="rocket", annot=True, fmt=fmt, annot_kws={"fontsize": 8}
-        )
+    g = sns.heatmap(data, cmap=cmap, annot=True, fmt=fmt, annot_kws={"fontsize": 8}, cbar=False)
     g.invert_yaxis()
     plt.yticks(rotation=0)
 
@@ -227,7 +226,13 @@ def add_legend_and_labels(g, args, linestyle_code):
         clear_inner=True,
     )  #
     g.add_legend()
-    l = g._legend.legendHandles
+    
+    version37 = version.parse("3.7.0")
+    cur_version = version.parse(matplotlib.__version__)
+    if cur_version >= version37:
+        l = g._legend.legend_handles 
+    else:
+        l = g._legend.legendHandles
     for ax in g.axes.flat:
         if ax.texts:
             txt = ax.texts[0]
