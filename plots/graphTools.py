@@ -667,6 +667,8 @@ Catplot's arguments [https://seaborn.pydata.org/generated/seaborn.catplot.html]:
         ("-m", "--machine"),
         ("-sc", "--schedule"),
         ("-lb", "--label"),
+        ("-cmp", "--compiler"),
+        ("-cfg", "--config"),
         ("--arg",),
         ("--places",),
     ]
@@ -815,6 +817,8 @@ def getDataFrame(args):
     args.all_y = args.y + args.y2
 
     filters = {
+        "compiler" : args.compiler,
+        "config" : args.config,
         "label": args.label,
         "schedule": args.schedule,
         "places": args.places,
