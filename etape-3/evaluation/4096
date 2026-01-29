@@ -1,0 +1,1 @@
+OMP_NUM_THREADS=1 OMP_SCHEDULE=static ./run -k ssandPile -s 4096 -g -i 1000 CHAINE_A_SUPPRIMER  
