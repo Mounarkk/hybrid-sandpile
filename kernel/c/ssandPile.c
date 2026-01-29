@@ -1,0 +1,116 @@
+#include "sandPile_common.h"
+
+#include <omp.h>
+#include <stdbool.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+//////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+///////////////////////////// Synchronous Kernel
+//////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+
+// Use ALIAS macros to create wrapper functions for common functions
+SANDPILE_ALIAS(ssandPile, refresh_img);
+SANDPILE_ALIAS(ssandPile, draw_4partout);
+SANDPILE_ALIAS(ssandPile, draw_DIM);
+SANDPILE_ALIAS(ssandPile, draw_alea);
+SANDPILE_ALIAS(ssandPile, draw_big);
+SANDPILE_ALIAS(ssandPile, draw_spirals);
+SANDPILE_DRAW_ALIAS(ssandPile);
+
+// Debug facilities
+
+void ssandPile_config (char *param)
+{
+  sandPile_config (param);
+}
+
+void ssandPile_debug (int x, int y)
+{
+  sandPile_debug (x, y);
+}
+
+void ssandPile_init (void)
+{
+  if (TABLE == NULL) {
+    const unsigned size = 2 * DIM * DIM * sizeof (TYPE);
+
+    PRINT_DEBUG ('u', "Memory footprint = 1 x %d bytes\n", size);
+
+    TABLE = ezp_alloc (size);
+  }
+}
+
+void ssandPile_finalize (void)
+{
+  const unsigned size = 2 * DIM * DIM * sizeof (TYPE);
+
+  ezp_free (TABLE, size);
+}
+
+int ssandPile_do_tile_default (int x, int y, int width, int height)
+{
+  int diff = 0;
+
+  for (int i = y; i < y + height; i++)
+    for (int j = x; j < x + width; j++) {
+      table (out, i, j) = table (in, i, j) % 4;
+      table (out, i, j) += table (in, i + 1, j) / 4;
+      table (out, i, j) += table (in, i - 1, j) / 4;
+      table (out, i, j) += table (in, i, j + 1) / 4;
+      table (out, i, j) += table (in, i, j - 1) / 4;
+      if (table (out, i, j) != table (in, i, j))
+        diff = 1;
+    }
+
+  return diff;
+}
+
+// Renvoie le nombre d'itérations effectuées avant stabilisation, ou 0
+unsigned ssandPile_compute_seq (unsigned nb_iter)
+{
+  for (unsigned it = 1; it <= nb_iter; it++) {
+    int change = do_tile (1, 1, DIM - 2, DIM - 2);
+    swap_tables ();
+    if (change == 0)
+      return it;
+  }
+  return 0;
+}
+
+unsigned ssandPile_compute_tiled (unsigned nb_iter)
+{
+  for (unsigned it = 1; it <= nb_iter; it++) {
+    int change = 0;
+
+    for (int y = 0; y < DIM; y += TILE_H)
+      for (int x = 0; x < DIM; x += TILE_W)
+        change |= do_tile (x + (x == 0), y + (y == 0),
+                           TILE_W - ((x + TILE_W == DIM) + (x == 0)),
+                           TILE_H - ((y + TILE_H == DIM) + (y == 0)));
+    swap_tables ();
+    if (change == 0)
+      return it;
+  }
+
+  return 0;
+}
+
+#ifdef ENABLE_OPENCL
+// OpenCL basic
+
+void ssandPile_refresh_img_ocl (void)
+{
+  cl_int err;
+
+  err =
+      clEnqueueReadBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE, 0,
+                           sizeof (unsigned) * DIM * DIM, TABLE, 0, NULL, NULL);
+  check (err, "Failed to read buffer from GPU");
+
+  ssandPile_refresh_img ();
+}
+
+#endif
