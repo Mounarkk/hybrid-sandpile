@@ -98,6 +98,32 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
   return 0;
 }
 
+// OpenMP parallelized version using tiled decomposition
+//
+// Usage: OMP_SCHEDULE=dynamic,4 ./run -k ssandPile -v omp_tiled -s <SIZE>
+unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
+{
+  for (unsigned it = 1; it <= nb_iter; it++) {
+    int change = 0;
+
+    // Parallelize the nested tile loops
+    // collapse(2) allows OpenMP to create a single iteration space from both loops,
+    // improving load balancing especially when the number of tiles is small
+    #pragma omp parallel for collapse(2) schedule(runtime) reduction(|:change)
+    for (int y = 0; y < DIM; y += TILE_H)
+      for (int x = 0; x < DIM; x += TILE_W)
+        change |= do_tile (x + (x == 0), y + (y == 0),
+                           TILE_W - ((x + TILE_W == DIM) + (x == 0)),
+                           TILE_H - ((y + TILE_H == DIM) + (y == 0)));
+    
+    swap_tables ();
+    if (change == 0)
+      return it;
+  }
+
+  return 0;
+}
+
 #ifdef ENABLE_OPENCL
 // OpenCL basic
 
