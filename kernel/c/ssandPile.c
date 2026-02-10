@@ -135,15 +135,23 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
   return 0;
 }
 
+void ssandPile_ft() {
+  for(int i = 0; i < DIM; i++) {
+    for(int j = 0; j < DIM; j++) {
+      table(in, i, j) == table(out, i, j);
+    }
+  }
+}
+
 unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 {
   unsigned it;
+  #pragma omp parallel
+  #pragma omp single
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
-
-#pragma omp parallel
-#pragma omp single
-#pragma omp taskloop reduction(| : change) collapse(2) grainsize(16)
+    
+  #pragma omp taskloop reduction(| : change) grainsize(1) shared(TABLE)
     for (int y = 0; y < DIM; y += TILE_H) {
       for (int x = 0; x < DIM; x += TILE_W) {
         int y_0   = (y == 0);
@@ -158,9 +166,11 @@ unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 
     swap_tables ();
     if (change == 0)
-      return it;
+      break;
   }
 
+  if (it <= nb_iter)
+    return it;
   return 0;
 }
 
