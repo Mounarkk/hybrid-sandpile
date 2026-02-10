@@ -68,6 +68,11 @@ int ssandPile_do_tile_default (int x, int y, int width, int height)
   return diff;
 }
 
+/* Omptimized version of the ssandpile_do_tile function 
+  - Compute a local offset from the current cell pointer each iteration to prevent pointer arithmetic operation
+  - use unroll pragmas to optimize the loop execution
+  - store each memory access in different variables to allow the compiler to best optimize the code 
+*/
 int ssandPile_do_tile_opt (int x, int y, int width, int height)
 {
   unsigned int offset = DIM - width;
@@ -78,7 +83,7 @@ int ssandPile_do_tile_opt (int x, int y, int width, int height)
 
   for (int i = 0; i < height; i ++) {
 #ifdef __GNUC__
-#pragma GCC unroll 4
+#pragma GCC unroll 4 /* Here, an unroll of 4 seems to give out the best results*/
 #elif __clang__
 #pragma unroll 4
 #endif
@@ -135,6 +140,7 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
   return 0;
 }
 
+/* First touch function */
 void ssandPile_ft() {
   for(int i = 0; i < DIM; i++) {
     for(int j = 0; j < DIM; j++) {
