@@ -3,9 +3,9 @@
 #include <unistd.h>
 
 // Global variables
-TYPE * /*restrict*/ TABLE = NULL;
-int in  = 0;
-int out = 1;
+TYPE *restrict TABLE = NULL;
+int in               = 0;
+int out              = 1;
 
 // Swap tables for synchronous version
 void swap_tables (void)
