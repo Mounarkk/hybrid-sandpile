@@ -12,13 +12,13 @@
 //////////////////////////////////////////////////////////////////////////////////
 
 // Use ALIAS macros to create wrapper functions for common functions
-SANDPILE_ALIAS(ssandPile, refresh_img);
-SANDPILE_ALIAS(ssandPile, draw_4partout);
-SANDPILE_ALIAS(ssandPile, draw_DIM);
-SANDPILE_ALIAS(ssandPile, draw_alea);
-SANDPILE_ALIAS(ssandPile, draw_big);
-SANDPILE_ALIAS(ssandPile, draw_spirals);
-SANDPILE_DRAW_ALIAS(ssandPile);
+SANDPILE_ALIAS (ssandPile, refresh_img);
+SANDPILE_ALIAS (ssandPile, draw_4partout);
+SANDPILE_ALIAS (ssandPile, draw_DIM);
+SANDPILE_ALIAS (ssandPile, draw_alea);
+SANDPILE_ALIAS (ssandPile, draw_big);
+SANDPILE_ALIAS (ssandPile, draw_spirals);
+SANDPILE_DRAW_ALIAS (ssandPile);
 
 // Debug facilities
 
@@ -68,6 +68,35 @@ int ssandPile_do_tile_default (int x, int y, int width, int height)
   return diff;
 }
 
+int ssandPile_do_tile_opt (int x, int y, int width, int height)
+{
+  int diff       = 0;
+  
+  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
+  for (int i = y; i < y + height; i++) {
+    for (int j = x; j < x + width; j++) {
+
+      unsigned int old_val = (*in_cell) & 3;
+
+      unsigned int new_val = (*(in_cell + 1) >> 2);
+      new_val += (*(in_cell - 1) >> 2);
+      new_val += (*(in_cell - DIM) >> 2);
+      new_val += (*(in_cell + DIM) >> 2);
+      new_val += old_val;
+
+      table(out, i, j) = new_val;
+
+      diff |= (new_val != old_val);
+
+      in_cell  += 1;
+    }
+
+    in_cell  += DIM - width;
+  }
+
+  return diff;
+}
+
 // Renvoie le nombre d'itérations effectuées avant stabilisation, ou 0
 unsigned ssandPile_compute_seq (unsigned nb_iter)
 {
@@ -98,6 +127,37 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
   return 0;
 }
 
+unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
+{
+  unsigned it;
+  for (it = 1; it <= nb_iter; it ++) {
+    int change = 0;
+    
+    #pragma omp parallel
+    #pragma omp single
+    #pragma omp taskloop reduction(|: change) collapse(2) grainsize(16)
+    for (int y = 0; y < DIM; y += TILE_H ) {
+      for (int x = 0; x < DIM; x += TILE_W) {
+        int y_0 = (y == 0);
+        int y_end = (y + TILE_H == DIM);
+        int x_0 = (x == 0);
+        int x_end = (x + TILE_W == DIM);
+
+        change |= do_tile (x + x_0, y + y_0,
+        TILE_W - x_end - x_0,
+        TILE_H - y_end - y_0);
+      }
+    }
+  
+    swap_tables ();
+    if (change == 0)
+      return it;
+  }
+
+  return 0;
+}
+
+
 // OpenMP parallelized version using tiled decomposition
 //
 // Usage: OMP_SCHEDULE=dynamic,4 ./run -k ssandPile -v omp_tiled -s <SIZE>
@@ -121,8 +181,8 @@ unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
       return it;
   }
 
-  return 0;
 }
+
 
 #ifdef ENABLE_OPENCL
 // OpenCL basic
