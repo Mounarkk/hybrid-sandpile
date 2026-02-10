@@ -8,19 +8,19 @@
 typedef unsigned int TYPE;
 
 // Global variables
-extern TYPE * /*restrict */ TABLE;
+extern TYPE *restrict TABLE;
 extern int in;
 extern int out;
 
 // Table access macros and functions
-static inline TYPE *atable_cell (TYPE */* restrict */ i, int y, int x)
+static inline TYPE *atable_cell (TYPE *restrict i, int y, int x)
 {
   return i + y * DIM + x;
 }
 
 #define atable(y, x) (*atable_cell (TABLE, (y), (x)))
 
-static inline TYPE *table_cell (TYPE * /* restrict */ i, int step, int y, int x)
+static inline TYPE *table_cell (TYPE *restrict i, int step, int y, int x)
 {
   return DIM * DIM * step + i + y * DIM + x;
 }
