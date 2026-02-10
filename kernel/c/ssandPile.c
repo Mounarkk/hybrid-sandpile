@@ -138,7 +138,7 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
 void ssandPile_ft() {
   for(int i = 0; i < DIM; i++) {
     for(int j = 0; j < DIM; j++) {
-      table(in, i, j) == table(out, i, j);
+      (void) (table(in, i, j) == table(out, i, j));
     }
   }
 }
