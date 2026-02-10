@@ -70,9 +70,9 @@ int ssandPile_do_tile_default (int x, int y, int width, int height)
 
 int ssandPile_do_tile_opt (int x, int y, int width, int height)
 {
-  int diff       = 0;
-  
-  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
+  int diff = 0;
+
+  TYPE *restrict in_cell = table_cell (TABLE, in, y, x);
   for (int i = y; i < y + height; i++) {
     for (int j = x; j < x + width; j++) {
 
@@ -84,14 +84,14 @@ int ssandPile_do_tile_opt (int x, int y, int width, int height)
       new_val += (*(in_cell + DIM) >> 2);
       new_val += old_val;
 
-      table(out, i, j) = new_val;
+      table (out, i, j) = new_val;
 
       diff |= (new_val != old_val);
 
-      in_cell  += 1;
+      in_cell += 1;
     }
 
-    in_cell  += DIM - width;
+    in_cell += DIM - width;
   }
 
   return diff;
@@ -130,25 +130,24 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
 unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 {
   unsigned it;
-  for (it = 1; it <= nb_iter; it ++) {
+  for (it = 1; it <= nb_iter; it++) {
     int change = 0;
-    
-    #pragma omp parallel
-    #pragma omp single
-    #pragma omp taskloop reduction(|: change) collapse(2) grainsize(16)
-    for (int y = 0; y < DIM; y += TILE_H ) {
+
+#pragma omp parallel
+#pragma omp single
+#pragma omp taskloop reduction(| : change) collapse(2) grainsize(16)
+    for (int y = 0; y < DIM; y += TILE_H) {
       for (int x = 0; x < DIM; x += TILE_W) {
-        int y_0 = (y == 0);
+        int y_0   = (y == 0);
         int y_end = (y + TILE_H == DIM);
-        int x_0 = (x == 0);
+        int x_0   = (x == 0);
         int x_end = (x + TILE_W == DIM);
 
-        change |= do_tile (x + x_0, y + y_0,
-        TILE_W - x_end - x_0,
-        TILE_H - y_end - y_0);
+        change |= do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
+                           TILE_H - y_end - y_0);
       }
     }
-  
+
     swap_tables ();
     if (change == 0)
       return it;
@@ -156,7 +155,6 @@ unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 
   return 0;
 }
-
 
 // OpenMP parallelized version using tiled decomposition
 //
@@ -166,23 +164,29 @@ unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
   for (unsigned it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    // Parallelize the nested tile loops
-    // collapse(2) allows OpenMP to create a single iteration space from both loops,
-    // improving load balancing especially when the number of tiles is small
-    #pragma omp parallel for collapse(2) schedule(runtime) reduction(|:change)
-    for (int y = 0; y < DIM; y += TILE_H)
-      for (int x = 0; x < DIM; x += TILE_W)
-        change |= do_tile (x + (x == 0), y + (y == 0),
-                           TILE_W - ((x + TILE_W == DIM) + (x == 0)),
-                           TILE_H - ((y + TILE_H == DIM) + (y == 0)));
-    
+// Parallelize the nested tile loops
+// collapse(2) allows OpenMP to create a single iteration space from both loops,
+// improving load balancing especially when the number of tiles is small
+#pragma omp parallel for collapse(2) schedule(runtime) reduction(| : change)
+    for (int y = 0; y < DIM; y += TILE_H) {
+      for (int x = 0; x < DIM; x += TILE_W) {
+        int y_0   = (y == 0);
+        int y_end = (y + TILE_H == DIM);
+        int x_0   = (x == 0);
+        int x_end = (x + TILE_W == DIM);
+
+        change |= do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
+                           TILE_H - y_end - y_0);
+      }
+    }
+
     swap_tables ();
     if (change == 0)
       return it;
   }
 
+  return 0;
 }
-
 
 #ifdef ENABLE_OPENCL
 // OpenCL basic
