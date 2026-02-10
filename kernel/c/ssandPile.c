@@ -70,28 +70,36 @@ int ssandPile_do_tile_default (int x, int y, int width, int height)
 
 int ssandPile_do_tile_opt (int x, int y, int width, int height)
 {
-  int diff = 0;
+  unsigned int offset = DIM - width;
+  int diff       = 0;
+  
+  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
+  TYPE *restrict out_cell  = table_cell (TABLE, out, y, x);
 
-  TYPE *restrict in_cell = table_cell (TABLE, in, y, x);
-  for (int i = y; i < y + height; i++) {
-    for (int j = x; j < x + width; j++) {
+  for (int i = 0; i < height; i ++) {
+#ifdef __GNUC__
+#pragma GCC unroll 4
+#elif __clang__
+#pragma unroll 4
+#endif
+    for (int j = 0; j < width; j ++) {
+      unsigned int b = (*(in_cell - 1) >> 2);
+      unsigned int old = (*in_cell) & 3;
+      unsigned int a = (*(in_cell + 1) >> 2);
+      unsigned int c = (*(in_cell - DIM) >> 2);
+      unsigned int d = (*(in_cell + DIM) >> 2);
+      
+      unsigned int new = a + b + c + d + old;
 
-      unsigned int old_val = (*in_cell) & 3;
+      *out_cell = new;
+      diff |= (new != old);
 
-      unsigned int new_val = (*(in_cell + 1) >> 2);
-      new_val += (*(in_cell - 1) >> 2);
-      new_val += (*(in_cell - DIM) >> 2);
-      new_val += (*(in_cell + DIM) >> 2);
-      new_val += old_val;
-
-      table (out, i, j) = new_val;
-
-      diff |= (new_val != old_val);
-
-      in_cell += 1;
+      in_cell ++;
+      out_cell ++;
     }
 
-    in_cell += DIM - width;
+    in_cell  += offset;
+    out_cell += offset;
   }
 
   return diff;
