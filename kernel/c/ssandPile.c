@@ -68,42 +68,121 @@ int ssandPile_do_tile_default (int x, int y, int width, int height)
   return diff;
 }
 
-/* Omptimized version of the ssandpile_do_tile function 
-  - Compute a local offset from the current cell pointer each iteration to prevent pointer arithmetic operation
+// Étape 1 : Arithmétique de pointeurs simple (remplacement des macros)
+int ssandPile_do_tile_opt1 (int x, int y, int width, int height)
+{
+  int diff         = 0;
+  TYPE *in_ptr     = TABLE + in * DIM * DIM;
+  TYPE *out_ptr    = TABLE + out * DIM * DIM;
+  const int stride = DIM;
+
+  for (int i = y; i < y + height; i++) {
+    TYPE *p_in  = in_ptr + i * stride + x;
+    TYPE *p_out = out_ptr + i * stride + x;
+    for (int j = 0; j < width; j++) {
+      TYPE center = p_in [j];
+      TYPE result = (center % 4) + (p_in [j - stride] / 4) +
+                    (p_in [j + stride] / 4) + (p_in [j - 1] / 4) +
+                    (p_in [j + 1] / 4);
+      p_out [j] = result;
+      if (result != center)
+        diff = 1;
+    }
+  }
+  return diff;
+}
+
+// Étape 2 : Ajout du restrict (anti-aliasing) et des opérations bit-à-bit
+// (masques/décalages)
+int ssandPile_do_tile_opt2 (int x, int y, int width, int height)
+{
+  int diff               = 0;
+  TYPE *restrict in_ptr  = TABLE + in * DIM * DIM;
+  TYPE *restrict out_ptr = TABLE + out * DIM * DIM;
+  const int stride       = DIM;
+
+  for (int i = y; i < y + height; i++) {
+    TYPE *restrict p_in  = in_ptr + i * stride + x;
+    TYPE *restrict p_out = out_ptr + i * stride + x;
+    for (int j = 0; j < width; j++) {
+      TYPE center = p_in [j];
+      TYPE result = (center & 3) + (p_in [j - stride] >> 2) +
+                    (p_in [j + stride] >> 2) + (p_in [j - 1] >> 2) +
+                    (p_in [j + 1] >> 2);
+      p_out [j] = result;
+      diff |= (result != center);
+    }
+  }
+  return diff;
+}
+
+// Étape 3 : Ajout du déroulage de boucle (Unrolling)
+int ssandPile_do_tile_opt3 (int x, int y, int width, int height)
+{
+  int diff               = 0;
+  TYPE *restrict in_ptr  = TABLE + in * DIM * DIM;
+  TYPE *restrict out_ptr = TABLE + out * DIM * DIM;
+  const int stride       = DIM;
+
+  for (int i = y; i < y + height; i++) {
+    TYPE *restrict p_in  = in_ptr + i * stride + x;
+    TYPE *restrict p_out = out_ptr + i * stride + x;
+#ifdef __GNUC__
+#pragma GCC unroll 4
+#elif __clang__
+#pragma unroll 4
+#endif
+    for (int j = 0; j < width; j++) {
+      TYPE center = p_in [j];
+      TYPE result = (center & 3) + (p_in [j - stride] >> 2) +
+                    (p_in [j + stride] >> 2) + (p_in [j - 1] >> 2) +
+                    (p_in [j + 1] >> 2);
+      p_out [j] = result;
+      diff |= (result != center);
+    }
+  }
+  return diff;
+}
+
+/* Omptimized version of the ssandpile_do_tile function
+  - Compute a local offset from the current cell pointer each iteration to
+  prevent pointer arithmetic operation
   - use unroll pragmas to optimize the loop execution
-  - store each memory access in different variables to allow the compiler to best optimize the code 
+  - store each memory access in different variables to allow the compiler to
+  best optimize the code
 */
 int ssandPile_do_tile_opt (int x, int y, int width, int height)
 {
   unsigned int offset = DIM - width;
-  int diff       = 0;
-  
-  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
-  TYPE *restrict out_cell  = table_cell (TABLE, out, y, x);
+  int diff            = 0;
 
-  for (int i = 0; i < height; i ++) {
+  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
+  TYPE *restrict out_cell = table_cell (TABLE, out, y, x);
+
+  for (int i = 0; i < height; i++) {
 #ifdef __GNUC__
-#pragma GCC unroll 4 /* Here, an unroll of 4 seems to give out the best results*/
+#pragma GCC                                                                    \
+    unroll 4 /* Here, an unroll of 4 seems to give out the best results*/
 #elif __clang__
 #pragma unroll 4
 #endif
-    for (int j = 0; j < width; j ++) {
-      unsigned int b = (*(in_cell - 1) >> 2);
+    for (int j = 0; j < width; j++) {
+      unsigned int b   = (*(in_cell - 1) >> 2);
       unsigned int old = (*in_cell) & 3;
-      unsigned int a = (*(in_cell + 1) >> 2);
-      unsigned int c = (*(in_cell - DIM) >> 2);
-      unsigned int d = (*(in_cell + DIM) >> 2);
-      
+      unsigned int a   = (*(in_cell + 1) >> 2);
+      unsigned int c   = (*(in_cell - DIM) >> 2);
+      unsigned int d   = (*(in_cell + DIM) >> 2);
+
       unsigned int new = a + b + c + d + old;
 
       *out_cell = new;
       diff |= (new != old);
 
-      in_cell ++;
-      out_cell ++;
+      in_cell++;
+      out_cell++;
     }
 
-    in_cell  += offset;
+    in_cell += offset;
     out_cell += offset;
   }
 
@@ -141,10 +220,11 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
 }
 
 /* First touch function */
-void ssandPile_ft() {
-  for(int i = 0; i < DIM; i++) {
-    for(int j = 0; j < DIM; j++) {
-      (void) (table(in, i, j) == table(out, i, j));
+void ssandPile_ft ()
+{
+  for (int i = 0; i < DIM; i++) {
+    for (int j = 0; j < DIM; j++) {
+      (void)(table (in, i, j) == table (out, i, j));
     }
   }
 }
@@ -152,12 +232,12 @@ void ssandPile_ft() {
 unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 {
   unsigned it;
-  #pragma omp parallel
-  #pragma omp single
+#pragma omp parallel
+#pragma omp single
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
-    
-  #pragma omp taskloop reduction(| : change) grainsize(1) shared(TABLE)
+
+#pragma omp taskloop reduction(| : change) grainsize(1) shared(TABLE)
     for (int y = 0; y < DIM; y += TILE_H) {
       for (int x = 0; x < DIM; x += TILE_W) {
         int y_0   = (y == 0);
