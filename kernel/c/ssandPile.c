@@ -20,6 +20,7 @@ SANDPILE_ALIAS (ssandPile, draw_big);
 SANDPILE_ALIAS (ssandPile, draw_spirals);
 SANDPILE_DRAW_ALIAS (ssandPile);
 
+int num_threads;
 // Debug facilities
 
 void ssandPile_config (char *param)
@@ -32,6 +33,7 @@ void ssandPile_debug (int x, int y)
   sandPile_debug (x, y);
 }
 
+
 void ssandPile_init (void)
 {
   if (TABLE == NULL) {
@@ -41,6 +43,8 @@ void ssandPile_init (void)
 
     TABLE = ezp_alloc (size);
   }
+
+  num_threads = omp_get_max_threads();
 }
 
 void ssandPile_finalize (void)
@@ -140,24 +144,16 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
   return 0;
 }
 
-/* First touch function */
-void ssandPile_ft() {
-  for(int i = 0; i < DIM; i++) {
-    for(int j = 0; j < DIM; j++) {
-      (void) (table(in, i, j) == table(out, i, j));
-    }
-  }
-}
-
 unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 {
+  
   unsigned it;
   #pragma omp parallel
-  #pragma omp single
+  #pragma omp single 
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
     
-  #pragma omp taskloop reduction(| : change) grainsize(1) shared(TABLE)
+  #pragma omp taskloop reduction(| : change) collapse(2) num_tasks(num_threads) shared(TABLE)
     for (int y = 0; y < DIM; y += TILE_H) {
       for (int x = 0; x < DIM; x += TILE_W) {
         int y_0   = (y == 0);
@@ -166,7 +162,7 @@ unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
         int x_end = (x + TILE_W == DIM);
 
         change |= do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
-                           TILE_H - y_end - y_0);
+                            TILE_H - y_end - y_0);
       }
     }
 
