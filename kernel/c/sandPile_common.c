@@ -398,7 +398,7 @@ void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx)
     *ty                = i / bitset->sets_per_row;
     *tx                = TILES_PER_SET_MUL (i % bitset->sets_per_row) + pos;
     bitset->last_found = i;
-    break;
+    return;
   }
 }
 

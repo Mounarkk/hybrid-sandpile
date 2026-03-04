@@ -133,7 +133,38 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
 // =========================================================================
 // BITSET FOR LAZY EVALUATION
 // =========================================================================
+// USAGE
 //
+// Meant to be used with the two provided tilsets.
+// Both the bitsets must be initialized, they are identified by the vars
+//   current_tile_set, next_tile_set
+//
+// One of the bitset must be defined as the current, and the other as the next
+//
+// The current tileset must be initialized as a full tileset
+// The other must be initialized as an empty tileset empty one
+// Every mark must be made to the next tileset
+// At the end of an iteration, the sets should be switch
+//
+// =========================================================================
+// DESCRIPTION
+//
+// TilesPerRow is the number of tiles per row
+// TilesPerCol is the number of tiles per column
+// K is the number of elements one bitset can hold (64 here)
+//
+// We use arrays of 64 bits integers to act as the rows of tiles.
+// For each row, we allocate N bitset integers
+//
+// Then, one row of tile will need upper(K / TilesPerRow) bitsets
+// The total number of bitset allocated is :
+//   upper(K / TilesPerRow) * tilesPerCol
+//
+// Since the last bitset of a row may contain invalid indices
+// The truncate function should be called when switching and allocating
+//
+// The bitsets act more like an iterator over the tiles.
+// Getting the next tile is then akin to popping it.
 
 typedef struct _tile_bitset *tile_bitset;
 
