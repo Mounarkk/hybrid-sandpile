@@ -130,4 +130,24 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
   return lazy_qt.cur [qt_node_index (lazy_qt.depth - 1, ty, tx)] == QT_DIRTY;
 }
 
+// =========================================================================
+// BITSET FOR LAZY EVALUATION
+// =========================================================================
+//
+
+typedef struct _tile_bitset *tile_bitset;
+
+extern unsigned current_tile_set;
+extern unsigned next_tile_set;
+extern tile_bitset tile_sets [2];
+
+tile_bitset tile_bitset_init (unsigned nb_tiles_w, unsigned nb_tiles_h);
+void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx);
+unsigned tile_bitset_nb_tiles (const tile_bitset bitset);
+void tile_bitset_mark_at (tile_bitset bitset, int change, unsigned ty,
+                          unsigned tx);
+void tile_bitset_mark_full (tile_bitset bitset);
+void tile_bitset_mark_empty (tile_bitset bitset);
+void tile_bitset_switch ();
+
 #endif // SANDPILE_COMMON_H

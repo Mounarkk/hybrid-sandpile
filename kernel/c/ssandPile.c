@@ -33,7 +33,6 @@ void ssandPile_debug (int x, int y)
   sandPile_debug (x, y);
 }
 
-
 void ssandPile_init (void)
 {
   if (TABLE == NULL) {
@@ -44,7 +43,20 @@ void ssandPile_init (void)
     TABLE = ezp_alloc (size);
   }
 
-  num_threads = omp_get_max_threads();
+  num_threads = omp_get_max_threads ();
+}
+
+void ssandPile_init_lazy (void)
+{
+  ssandPile_init ();
+
+  tile_sets [0] = tile_bitset_init (DIM / TILE_W, DIM / TILE_H);
+  tile_sets [1] = tile_bitset_init (DIM / TILE_W, DIM / TILE_H);
+
+  current_tile_set = 0;
+  next_tile_set    = 1;
+  tile_bitset_mark_full (tile_sets [current_tile_set]);
+  tile_bitset_mark_empty (tile_sets [next_tile_set]);
 }
 
 void ssandPile_finalize (void)
@@ -72,42 +84,45 @@ int ssandPile_do_tile_default (int x, int y, int width, int height)
   return diff;
 }
 
-/* Omptimized version of the ssandpile_do_tile function 
-  - Compute a local offset from the current cell pointer each iteration to prevent pointer arithmetic operation
+/* Omptimized version of the ssandpile_do_tile function
+  - Compute a local offset from the current cell pointer each iteration to
+  prevent pointer arithmetic operation
   - use unroll pragmas to optimize the loop execution
-  - store each memory access in different variables to allow the compiler to best optimize the code 
+  - store each memory access in different variables to allow the compiler to
+  best optimize the code
 */
 int ssandPile_do_tile_opt (int x, int y, int width, int height)
 {
   unsigned int offset = DIM - width;
-  int diff       = 0;
-  
-  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
-  TYPE *restrict out_cell  = table_cell (TABLE, out, y, x);
+  int diff            = 0;
 
-  for (int i = 0; i < height; i ++) {
+  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
+  TYPE *restrict out_cell = table_cell (TABLE, out, y, x);
+
+  for (int i = 0; i < height; i++) {
 #ifdef __GNUC__
-#pragma GCC unroll 4 /* Here, an unroll of 4 seems to give out the best results*/
+#pragma GCC                                                                    \
+    unroll 4 /* Here, an unroll of 4 seems to give out the best results*/
 #elif __clang__
 #pragma unroll 4
 #endif
-    for (int j = 0; j < width; j ++) {
-      unsigned int b = (*(in_cell - 1) >> 2);
+    for (int j = 0; j < width; j++) {
+      unsigned int b   = (*(in_cell - 1) >> 2);
       unsigned int old = (*in_cell) & 3;
-      unsigned int a = (*(in_cell + 1) >> 2);
-      unsigned int c = (*(in_cell - DIM) >> 2);
-      unsigned int d = (*(in_cell + DIM) >> 2);
-      
+      unsigned int a   = (*(in_cell + 1) >> 2);
+      unsigned int c   = (*(in_cell - DIM) >> 2);
+      unsigned int d   = (*(in_cell + DIM) >> 2);
+
       unsigned int new = a + b + c + d + old;
 
       *out_cell = new;
       diff |= (new != old);
 
-      in_cell ++;
-      out_cell ++;
+      in_cell++;
+      out_cell++;
     }
 
-    in_cell  += offset;
+    in_cell += offset;
     out_cell += offset;
   }
 
@@ -146,14 +161,15 @@ unsigned ssandPile_compute_tiled (unsigned nb_iter)
 
 unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 {
-  
+
   unsigned it;
-  #pragma omp parallel
-  #pragma omp single 
+#pragma omp parallel
+#pragma omp single
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
-    
-  #pragma omp taskloop reduction(| : change) collapse(2) num_tasks(num_threads) shared(TABLE)
+
+#pragma omp taskloop reduction(| : change) collapse(2) num_tasks(num_threads)  \
+    shared(TABLE)
     for (int y = 0; y < DIM; y += TILE_H) {
       for (int x = 0; x < DIM; x += TILE_W) {
         int y_0   = (y == 0);
@@ -162,7 +178,7 @@ unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
         int x_end = (x + TILE_W == DIM);
 
         change |= do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
-                            TILE_H - y_end - y_0);
+                           TILE_H - y_end - y_0);
       }
     }
 
@@ -201,6 +217,49 @@ unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
     }
 
     swap_tables ();
+    if (change == 0)
+      return it;
+  }
+
+  return 0;
+}
+
+unsigned ssandPile_compute_lazy (unsigned nb_iter)
+{
+  for (unsigned it = 0; it < nb_iter; it++) {
+    int change           = 0;
+    tile_bitset curr_set = tile_sets [current_tile_set];
+    tile_bitset next_set = tile_sets [next_tile_set];
+
+    unsigned nb_tiles = tile_bitset_nb_tiles (curr_set);
+
+    for (unsigned i = 0; i < nb_tiles; i++) {
+      unsigned x, y;
+
+      int ty, tx, loc_change;
+      tile_bitset_next_tile (curr_set, &ty, &tx);
+
+      x         = tx * TILE_W;
+      y         = ty * TILE_H;
+      int y_0   = (ty == 0);
+      int y_end = ((ty + 1) * TILE_H == DIM);
+      int x_0   = (tx == 0);
+      int x_end = ((tx + 1) * TILE_W == DIM);
+
+      loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
+                            TILE_H - y_end - y_0);
+
+      tile_bitset_mark_at (next_set, loc_change, ty, tx);
+      tile_bitset_mark_at (next_set, loc_change, ty, tx + 1 - x_end);
+      tile_bitset_mark_at (next_set, loc_change, ty, tx - 1 + x_0);
+      tile_bitset_mark_at (next_set, loc_change, ty + 1 - y_end, tx);
+      tile_bitset_mark_at (next_set, loc_change, ty - 1 + y_0, tx);
+
+      change |= loc_change;
+    }
+
+    swap_tables ();
+    tile_bitset_switch ();
     if (change == 0)
       return it;
   }
