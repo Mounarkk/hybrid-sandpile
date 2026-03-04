@@ -161,3 +161,154 @@ void sandPile_draw_spirals (void)
 {
   spiral (DIM / 32);
 }
+
+// =========================================================================
+// QUADTREE implementation
+// =========================================================================
+
+LazyQT lazy_qt = {0};
+
+// Compute the smallest power of 2 >= v
+static int next_pow2 (int v)
+{
+  v--;
+  v |= v >> 1;
+  v |= v >> 2;
+  v |= v >> 4;
+  v |= v >> 8;
+  v |= v >> 16;
+  return v + 1;
+}
+
+void qt_init (void)
+{
+  lazy_qt.ntw = DIM / TILE_W;
+  lazy_qt.nth = DIM / TILE_H;
+
+  int max_dim = lazy_qt.ntw > lazy_qt.nth ? lazy_qt.ntw : lazy_qt.nth;
+  lazy_qt.n   = next_pow2 (max_dim);
+
+  // depth = log2(n) + 1 : root is level 0, leaves are level depth-1
+  lazy_qt.depth = 0;
+  for (int v = lazy_qt.n; v > 1; v >>= 1)
+    lazy_qt.depth++;
+  lazy_qt.depth++; // +1 for the root level
+
+  // total_nodes = sum of 4^k for k = 0..depth-1 = (4^depth - 1) / 3
+  lazy_qt.total_nodes = ((1 << (2 * lazy_qt.depth)) - 1) / 3;
+
+  lazy_qt.cur = calloc (lazy_qt.total_nodes, sizeof (unsigned char));
+  lazy_qt.nxt = calloc (lazy_qt.total_nodes, sizeof (unsigned char));
+
+  PRINT_DEBUG ('u',
+               "QuadTree: %dx%d tiles (padded to %d), depth=%d, "
+               "total_nodes=%d (%d bytes)\n",
+               lazy_qt.ntw, lazy_qt.nth, lazy_qt.n, lazy_qt.depth,
+               lazy_qt.total_nodes, lazy_qt.total_nodes * 2);
+}
+
+void qt_destroy (void)
+{
+  free (lazy_qt.cur);
+  free (lazy_qt.nxt);
+  lazy_qt.cur = NULL;
+  lazy_qt.nxt = NULL;
+}
+
+void qt_mark_all_dirty (void)
+{
+  memset (lazy_qt.cur, QT_DIRTY, lazy_qt.total_nodes);
+}
+
+// Mark a single tile dirty in the nxt array and propagate up to root.
+// The early exit when a parent is already dirty makes this O(1) amortized.
+static void qt_mark_one_dirty_nxt (int tx, int ty)
+{
+  int leaf_level                                   = lazy_qt.depth - 1;
+  lazy_qt.nxt [qt_node_index (leaf_level, ty, tx)] = QT_DIRTY;
+
+  int cx = tx, cy = ty;
+  for (int l = leaf_level - 1; l >= 0; l--) {
+    cx >>= 1;
+    cy >>= 1;
+    int idx = qt_node_index (l, cy, cx);
+    if (lazy_qt.nxt [idx] == QT_DIRTY)
+      break; // parent already dirty, ancestors are too
+    lazy_qt.nxt [idx] = QT_DIRTY;
+  }
+}
+
+// Mark a tile AND its 4-connected neighbors dirty in the nxt tree.
+// Called when a tile had at least one unstable cell.
+void qt_mark_dirty_with_neighbors (int tx, int ty)
+{
+  qt_mark_one_dirty_nxt (tx, ty);
+  if (tx > 0)
+    qt_mark_one_dirty_nxt (tx - 1, ty);
+  if (tx < lazy_qt.ntw - 1)
+    qt_mark_one_dirty_nxt (tx + 1, ty);
+  if (ty > 0)
+    qt_mark_one_dirty_nxt (tx, ty - 1);
+  if (ty < lazy_qt.nth - 1)
+    qt_mark_one_dirty_nxt (tx, ty + 1);
+}
+
+void qt_swap_and_clear (void)
+{
+  unsigned char *tmp = lazy_qt.cur;
+  lazy_qt.cur        = lazy_qt.nxt;
+  lazy_qt.nxt        = tmp;
+  memset (lazy_qt.nxt, QT_CLEAN, lazy_qt.total_nodes);
+}
+
+// ---- Recursive top-down traversal ----
+//
+// Walks the cur tree. At each node :
+//   - If CLEAN skip entire subtree (the big win)
+//   - If DIRTY and at leaf level compute the tile
+//   - If DIRTY and internal recurse into 4 children
+
+static int qt_traverse (int level, int ty, int tx, qt_tile_fn tile_func)
+{
+  int idx = qt_node_index (level, ty, tx);
+
+  if (lazy_qt.cur [idx] == QT_CLEAN)
+    return 0; // skip entire subtree
+
+  int leaf_level = lazy_qt.depth - 1;
+
+  if (level == leaf_level) {
+    // Leaf node, corresponds to tile (tx, ty)
+    if (tx >= lazy_qt.ntw || ty >= lazy_qt.nth)
+      return 0; // padding tile (outside actual grid)
+
+    // Convert tile coords to pixel coords, handling borders
+    int px    = tx * TILE_W;
+    int py    = ty * TILE_H;
+    int x0    = (px == 0);
+    int y0    = (py == 0);
+    int x_end = (px + TILE_W == DIM);
+    int y_end = (py + TILE_H == DIM);
+
+    int changed =
+        tile_func (px + x0, py + y0, TILE_W - x_end - x0, TILE_H - y_end - y0);
+
+    if (changed)
+      qt_mark_dirty_with_neighbors (tx, ty);
+
+    return changed;
+  }
+
+  // Internal node, recurse into 4 children
+  int change = 0;
+  change |= qt_traverse (level + 1, 2 * ty, 2 * tx, tile_func);
+  change |= qt_traverse (level + 1, 2 * ty, 2 * tx + 1, tile_func);
+  change |= qt_traverse (level + 1, 2 * ty + 1, 2 * tx, tile_func);
+  change |= qt_traverse (level + 1, 2 * ty + 1, 2 * tx + 1, tile_func);
+  return change;
+}
+
+int qt_compute_iteration (qt_tile_fn tile_func)
+{
+  return qt_traverse (0, 0, 0, tile_func);
+}
