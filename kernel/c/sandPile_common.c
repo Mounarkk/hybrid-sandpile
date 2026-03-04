@@ -329,13 +329,19 @@ tile_bitset tile_sets [2];
 
 typedef uint64_t tileset;
 
-inline tileset tile_bitset_at (unsigned index)
+struct _tile_bitset
+{
+  unsigned sets_per_row, tile_per_row, nb_rows, last_found, total_nb_sets;
+  tileset *restrict values, trunc_mask;
+};
+
+static inline const tileset tile_bitset_at (const unsigned index)
 {
   return (((tileset)1) << (TILES_PER_SET - index - 1)) *
          (index < TILES_PER_SET);
 }
 
-void tile_bitset_print (tileset set)
+static inline void tile_bitset_print (const tileset set)
 {
   printf ("{");
   for (int i = 0; i < TILES_PER_SET - 1; i++)
@@ -343,13 +349,8 @@ void tile_bitset_print (tileset set)
   printf ("%c}\n", set & tile_bitset_at (TILES_PER_SET - 1) ? '1' : '0');
 }
 
-struct _tile_bitset
-{
-  unsigned sets_per_row, tile_per_row, nb_rows, last_found;
-  tileset *values, trunc_mask;
-};
-
-tile_bitset tile_bitset_init (unsigned nb_tiles_w, unsigned nb_tiles_h)
+tile_bitset tile_bitset_init (const unsigned nb_tiles_w,
+                              const unsigned nb_tiles_h)
 {
   tile_bitset bitset;
   bitset = malloc (sizeof (*bitset));
@@ -366,25 +367,28 @@ tile_bitset tile_bitset_init (unsigned nb_tiles_w, unsigned nb_tiles_h)
     return NULL;
   }
 
-  bitset->nb_rows      = nb_tiles_h;
-  bitset->tile_per_row = nb_tiles_w;
-  bitset->sets_per_row = sets_per_row;
-  bitset->last_found   = 0;
+  bitset->nb_rows       = nb_tiles_h;
+  bitset->tile_per_row  = nb_tiles_w;
+  bitset->sets_per_row  = sets_per_row;
+  bitset->last_found    = 0;
+  bitset->total_nb_sets = bitset->sets_per_row * bitset->nb_rows;
 
   tileset mask = 0;
   if (tiles_left != 0)
     mask = tile_bitset_at (tiles_left - 1) - 1;
   bitset->trunc_mask = ~mask;
 
+  for (int i = 0; i < bitset->nb_rows * bitset->sets_per_row; i++)
+    __builtin_prefetch (&bitset->values [i], 1, 3);
+
   return bitset;
 }
 
 void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx)
 {
-  *ty = *tx      = 0;
-  unsigned total = bitset->nb_rows * bitset->sets_per_row;
+  *ty = *tx = 0;
 
-  for (unsigned i = bitset->last_found; i < total; i++) {
+  for (unsigned i = bitset->last_found; i < bitset->total_nb_sets; i++) {
     if (bitset->values [i] == 0)
       continue;
 
@@ -398,11 +402,11 @@ void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx)
   }
 }
 
-unsigned tile_bitset_nb_tiles (const tile_bitset bitset)
+const unsigned tile_bitset_nb_tiles (const tile_bitset bitset)
 {
   unsigned nb = 0;
 
-  for (unsigned i = 0; i < bitset->nb_rows * bitset->sets_per_row; i++)
+  for (unsigned i = 0; i < bitset->total_nb_sets; i++)
     nb += __builtin_popcountl (bitset->values [i]);
 
   return nb;
@@ -417,22 +421,18 @@ void tile_bitset_mark_at (tile_bitset bitset, int change, unsigned ty,
 
 void tile_bitset_mark_full (tile_bitset bitset)
 {
-  unsigned per_row = bitset->sets_per_row;
-  unsigned total   = bitset->nb_rows * per_row;
-
+  unsigned total = bitset->total_nb_sets;
   for (unsigned i = 0; i < total; i++)
     bitset->values [i] = ~((tileset)0);
 
+  unsigned per_row = bitset->sets_per_row;
   for (unsigned i = per_row - 1; i < total; i += per_row)
     bitset->values [i] &= bitset->trunc_mask;
 }
 
 void tile_bitset_mark_empty (tile_bitset bitset)
 {
-  unsigned per_row = bitset->sets_per_row;
-  unsigned total   = bitset->nb_rows * per_row;
-
-  for (unsigned i = 0; i < total; i++)
+  for (unsigned i = 0; i < bitset->total_nb_sets; i++)
     bitset->values [i] = (tileset)0;
 }
 

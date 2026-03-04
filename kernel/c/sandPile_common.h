@@ -137,17 +137,22 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
 
 typedef struct _tile_bitset *tile_bitset;
 
-extern unsigned current_tile_set;
-extern unsigned next_tile_set;
+extern unsigned current_tile_set, next_tile_set;
 extern tile_bitset tile_sets [2];
 
-tile_bitset tile_bitset_init (unsigned nb_tiles_w, unsigned nb_tiles_h);
+tile_bitset tile_bitset_init (const unsigned nb_tiles_w,
+                              const unsigned nb_tiles_h);
+const unsigned tile_bitset_nb_tiles (const tile_bitset bitset);
+
+void tile_bitset_mark_at (tile_bitset bitset, const int change,
+                          const unsigned ty, const unsigned tx);
+
 void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx);
-unsigned tile_bitset_nb_tiles (const tile_bitset bitset);
-void tile_bitset_mark_at (tile_bitset bitset, int change, unsigned ty,
-                          unsigned tx);
+
 void tile_bitset_mark_full (tile_bitset bitset);
+
 void tile_bitset_mark_empty (tile_bitset bitset);
+
 void tile_bitset_switch ();
 
 #endif // SANDPILE_COMMON_H
