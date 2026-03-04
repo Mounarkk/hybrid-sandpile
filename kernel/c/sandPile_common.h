@@ -153,6 +153,8 @@ void tile_bitset_mark_full (tile_bitset bitset);
 
 void tile_bitset_mark_empty (tile_bitset bitset);
 
+void tile_bitset_trunc (tile_bitset bitset);
+
 void tile_bitset_switch ();
 
 #endif // SANDPILE_COMMON_H

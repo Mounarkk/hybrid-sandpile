@@ -424,10 +424,6 @@ void tile_bitset_mark_full (tile_bitset bitset)
   unsigned total = bitset->total_nb_sets;
   for (unsigned i = 0; i < total; i++)
     bitset->values [i] = ~((tileset)0);
-
-  unsigned per_row = bitset->sets_per_row;
-  for (unsigned i = per_row - 1; i < total; i += per_row)
-    bitset->values [i] &= bitset->trunc_mask;
 }
 
 void tile_bitset_mark_empty (tile_bitset bitset)
@@ -436,8 +432,17 @@ void tile_bitset_mark_empty (tile_bitset bitset)
     bitset->values [i] = (tileset)0;
 }
 
+void tile_bitset_trunc (tile_bitset bitset)
+{
+  unsigned per_row = bitset->sets_per_row;
+  for (unsigned i = per_row - 1; i < bitset->total_nb_sets; i += per_row)
+    bitset->values [i] &= bitset->trunc_mask;
+}
+
 void tile_bitset_switch ()
 {
+  tile_bitset_trunc (tile_sets [next_tile_set]);
+
   next_tile_set                            = current_tile_set;
   current_tile_set                         = (current_tile_set + 1) & 1;
   tile_sets [current_tile_set]->last_found = 0;

@@ -57,6 +57,8 @@ void ssandPile_init_lazy (void)
   next_tile_set    = 1;
   tile_bitset_mark_full (tile_sets [current_tile_set]);
   tile_bitset_mark_empty (tile_sets [next_tile_set]);
+  tile_bitset_trunc (tile_sets [current_tile_set]);
+  tile_bitset_trunc (tile_sets [next_tile_set]);
 }
 
 void ssandPile_finalize (void)
