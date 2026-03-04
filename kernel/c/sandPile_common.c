@@ -323,7 +323,7 @@ unsigned next_tile_set;
 tile_bitset tile_sets [2];
 
 #define TILES_PER_SET 64
-#define TILES_PER_SET_MOD(x) (x & ((1 << 6) - 1))
+#define TILES_PER_SET_MOD(x) (x & (TILES_PER_SET - 1))
 #define TILES_PER_SET_DIV(x) (x >> 6)
 #define TILES_PER_SET_MUL(x) (x << 6)
 

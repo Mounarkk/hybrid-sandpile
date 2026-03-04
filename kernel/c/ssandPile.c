@@ -241,10 +241,10 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
 
       x         = tx * TILE_W;
       y         = ty * TILE_H;
-      int y_0   = (ty == 0);
-      int y_end = ((ty + 1) * TILE_H == DIM);
-      int x_0   = (tx == 0);
-      int x_end = ((tx + 1) * TILE_W == DIM);
+      int y_0   = (y == 0);
+      int y_end = (y + TILE_H == DIM);
+      int x_0   = (x == 0);
+      int x_end = (x + TILE_W == DIM);
 
       loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                             TILE_H - y_end - y_0);
