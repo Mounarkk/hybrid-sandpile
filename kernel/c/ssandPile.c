@@ -270,6 +270,68 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
   return 0;
 }
 
+unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
+{
+  unsigned it;
+  for (it = 1; it <= nb_iter; it++) {
+    int change = 0;
+
+    const unsigned long nb_tiles = tileset_nb_tiles (TILESET);
+    const tile *restrict tiles   = tileset_flush_tiles (TILESET);
+
+    int ratio = 100 * ((float)nb_tiles) / tileset_get_total_tiles (TILESET);
+    int nb_threads = num_threads; // num_threads * ratio + 1;
+    if (ratio < 50)
+      nb_threads = num_threads >> 1;
+    if (ratio < 25)
+      nb_threads = num_threads >> 2;
+
+    // printf ("Number of tiles dropped to %lu/%lu, ratio is %d"
+    //         "which makes %d "
+    //         "threads\n",
+    //         nb_tiles, tileset_get_total_tiles (TILESET), ratio, nb_threads);
+
+#pragma omp parallel num_threads(nb_threads)
+#pragma omp for schedule(runtime)
+    for (unsigned i = 0; i < nb_tiles; i++) {
+      unsigned long x, y;
+      tile t = tiles [i];
+      x      = t.tx * TILE_W;
+      y      = t.ty * TILE_H;
+
+      int y_0   = (y == 0);
+      int x_0   = (x == 0);
+      int y_end = (y + TILE_H == DIM);
+      int x_end = (x + TILE_W == DIM);
+
+      int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
+                                TILE_H - y_end - y_0);
+#pragma omp critical
+      {
+        tileset_mark_at (TILESET, loc_change, tiles [i]);
+        tileset_mark_at (TILESET, loc_change,
+                         (tile){.tx = t.tx - 1 + x_0, .ty = t.ty});
+        tileset_mark_at (TILESET, loc_change,
+                         (tile){.tx = t.tx + 1 - x_end, .ty = t.ty});
+        tileset_mark_at (TILESET, loc_change,
+                         (tile){.tx = t.tx, .ty = t.ty + 1 - y_end});
+        tileset_mark_at (TILESET, loc_change,
+                         (tile){.tx = t.tx, .ty = t.ty - 1 + y_0});
+
+        change |= loc_change;
+      }
+    }
+
+    swap_tables ();
+    if (change == 0)
+      break;
+  }
+
+  if (it <= nb_iter)
+    return it;
+  return 0;
+}
+
 #ifdef ENABLE_OPENCL
 // OpenCL basic
 
