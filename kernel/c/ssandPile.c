@@ -50,15 +50,16 @@ void ssandPile_init_lazy (void)
 {
   ssandPile_init ();
 
-  tile_sets [0] = tile_bitset_init (NB_TILES_X, NB_TILES_Y);
-  tile_sets [1] = tile_bitset_init (NB_TILES_X, NB_TILES_Y);
+  if (TILESET != NULL)
+    return;
 
-  current_tile_set = 0;
-  next_tile_set    = 1;
-  tile_bitset_mark_full (tile_sets [current_tile_set]);
-  tile_bitset_mark_empty (tile_sets [next_tile_set]);
-  tile_bitset_trunc (tile_sets [current_tile_set]);
-  tile_bitset_trunc (tile_sets [next_tile_set]);
+  TILESET = tileset_init (NB_TILES_X, NB_TILES_Y);
+  tileset_mark_full (TILESET);
+}
+
+void ssandPile_init_omp_lazy (void)
+{
+  ssandPile_init_lazy ();
 }
 
 void ssandPile_finalize (void)
@@ -228,41 +229,40 @@ unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
 
 unsigned ssandPile_compute_lazy (unsigned nb_iter)
 {
-  for (unsigned it = 0; it < nb_iter; it++) {
-    int change           = 0;
-    tile_bitset curr_set = tile_sets [current_tile_set];
-    tile_bitset next_set = tile_sets [next_tile_set];
+  for (unsigned it = 1; it <= nb_iter; it++) {
+    int change = 0;
 
-    unsigned nb_tiles = tile_bitset_nb_tiles (curr_set);
+    const unsigned long nb_tiles = tileset_nb_tiles (TILESET);
+    const tile *restrict tiles   = tileset_flush_tiles (TILESET);
+
     for (unsigned i = 0; i < nb_tiles; i++) {
-      unsigned x, y;
+      unsigned long x, y;
+      tile t = tiles [i];
+      x      = t.tx * TILE_W;
+      y      = t.ty * TILE_H;
 
-      int ty, tx, loc_change;
-      unsigned long long idx = tile_bitset_next_tile (curr_set);
-      ty                     = idx / NB_TILES_X;
-      tx                     = idx % NB_TILES_X;
-
-      x         = tx * TILE_W;
-      y         = ty * TILE_H;
       int y_0   = (y == 0);
-      int y_end = (y + TILE_H == DIM);
       int x_0   = (x == 0);
+      int y_end = (y + TILE_H == DIM);
       int x_end = (x + TILE_W == DIM);
 
-      loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
-                            TILE_H - y_end - y_0);
+      int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
+                                TILE_H - y_end - y_0);
 
-      tile_bitset_mark_at (next_set, loc_change, ty, tx);
-      tile_bitset_mark_at (next_set, loc_change, ty, tx + 1 - x_end);
-      tile_bitset_mark_at (next_set, loc_change, ty, tx - 1 + x_0);
-      tile_bitset_mark_at (next_set, loc_change, ty + 1 - y_end, tx);
-      tile_bitset_mark_at (next_set, loc_change, ty - 1 + y_0, tx);
+      tileset_mark_at (TILESET, loc_change, tiles [i]);
+      tileset_mark_at (TILESET, loc_change,
+                       (tile){.tx = t.tx - 1 + x_0, .ty = t.ty});
+      tileset_mark_at (TILESET, loc_change,
+                       (tile){.tx = t.tx + 1 - x_end, .ty = t.ty});
+      tileset_mark_at (TILESET, loc_change,
+                       (tile){.tx = t.tx, .ty = t.ty + 1 - y_end});
+      tileset_mark_at (TILESET, loc_change,
+                       (tile){.tx = t.tx, .ty = t.ty - 1 + y_0});
 
       change |= loc_change;
     }
 
     swap_tables ();
-    tile_bitset_switch ();
     if (change == 0)
       return it;
   }

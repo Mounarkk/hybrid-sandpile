@@ -165,27 +165,31 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
 //
 // The bitsets act more like an iterator over the tiles.
 // Getting the next tile is then akin to popping it.
+typedef struct _tileset *tileset;
 
-typedef struct _tile_bitset *tile_bitset;
+typedef struct
+{
+  unsigned long tx, ty;
+} tile;
 
-extern unsigned current_tile_set, next_tile_set;
-extern tile_bitset tile_sets [2];
+extern restrict tileset TILESET;
 
-tile_bitset tile_bitset_init (const unsigned nb_tiles_w,
-                              const unsigned nb_tiles_h);
-const unsigned tile_bitset_nb_tiles (const tile_bitset bitset);
+tileset tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 
-void tile_bitset_mark_at (tile_bitset bitset, const int change,
-                          const unsigned ty, const unsigned tx);
+void tileset_finalize (tileset tileset);
 
-const unsigned long long tile_bitset_next_tile (tile_bitset bitset);
+const tile *tileset_flush_tiles (tileset tileset);
 
-void tile_bitset_mark_full (tile_bitset bitset);
+const unsigned tileset_nb_tiles (const tileset tileset);
 
-void tile_bitset_mark_empty (tile_bitset bitset);
+void tileset_mark_at (tileset tileset, const int change, const tile t);
 
-void tile_bitset_trunc (tile_bitset bitset);
+void tileset_mark_full (tileset tileset);
 
-void tile_bitset_switch ();
+void tileset_mark_empty (tileset tileset);
+
+void tileset_trunc (tileset tileset);
+
+unsigned long tileset_get_total_tiles (tileset tileset);
 
 #endif // SANDPILE_COMMON_H
