@@ -50,8 +50,8 @@ void ssandPile_init_lazy (void)
 {
   ssandPile_init ();
 
-  tile_sets [0] = tile_bitset_init (DIM / TILE_W, DIM / TILE_H);
-  tile_sets [1] = tile_bitset_init (DIM / TILE_W, DIM / TILE_H);
+  tile_sets [0] = tile_bitset_init (NB_TILES_X, NB_TILES_Y);
+  tile_sets [1] = tile_bitset_init (NB_TILES_X, NB_TILES_Y);
 
   current_tile_set = 0;
   next_tile_set    = 1;
@@ -234,12 +234,13 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
     tile_bitset next_set = tile_sets [next_tile_set];
 
     unsigned nb_tiles = tile_bitset_nb_tiles (curr_set);
-
     for (unsigned i = 0; i < nb_tiles; i++) {
       unsigned x, y;
 
       int ty, tx, loc_change;
-      tile_bitset_next_tile (curr_set, &ty, &tx);
+      unsigned long long idx = tile_bitset_next_tile (curr_set);
+      ty                     = idx / NB_TILES_X;
+      tx                     = idx % NB_TILES_X;
 
       x         = tx * TILE_W;
       y         = ty * TILE_H;

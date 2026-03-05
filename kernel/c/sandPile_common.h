@@ -131,7 +131,7 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
 }
 
 // =========================================================================
-// BITSET FOR LAZY EVALUATION
+// TILESETS FOR LAZY EVALUATION
 // =========================================================================
 // USAGE
 //
@@ -178,7 +178,7 @@ const unsigned tile_bitset_nb_tiles (const tile_bitset bitset);
 void tile_bitset_mark_at (tile_bitset bitset, const int change,
                           const unsigned ty, const unsigned tx);
 
-void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx);
+const unsigned long long tile_bitset_next_tile (tile_bitset bitset);
 
 void tile_bitset_mark_full (tile_bitset bitset);
 

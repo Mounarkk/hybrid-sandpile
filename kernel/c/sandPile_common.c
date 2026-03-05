@@ -314,13 +314,9 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 }
 
 // =========================================================================
-// BITSET FOR LAZY EVALUATION
+// TILESETS FOR LAZY EVALUATION
 // =========================================================================
 //
-
-unsigned current_tile_set;
-unsigned next_tile_set;
-tile_bitset tile_sets [2];
 
 #define TILES_PER_SET 64
 #define TILES_PER_SET_MOD(x) (x & (TILES_PER_SET - 1))
@@ -328,6 +324,9 @@ tile_bitset tile_sets [2];
 #define TILES_PER_SET_MUL(x) (x << 6)
 
 typedef uint64_t tileset;
+
+unsigned current_tile_set, next_tile_set;
+tile_bitset tile_sets [2];
 
 struct _tile_bitset
 {
@@ -384,10 +383,8 @@ tile_bitset tile_bitset_init (const unsigned nb_tiles_w,
   return bitset;
 }
 
-void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx)
+const unsigned long long tile_bitset_next_tile (tile_bitset bitset)
 {
-  *ty = *tx = 0;
-
   for (unsigned i = bitset->last_found; i < bitset->total_nb_sets; i++) {
     if (bitset->values [i] == 0)
       continue;
@@ -395,11 +392,12 @@ void tile_bitset_next_tile (tile_bitset bitset, int *ty, int *tx)
     unsigned pos = __builtin_clzll (bitset->values [i]);
     bitset->values [i] &= ~tile_bitset_at (pos);
 
-    *ty                = i / bitset->sets_per_row;
-    *tx                = TILES_PER_SET_MUL (i % bitset->sets_per_row) + pos;
     bitset->last_found = i;
-    return;
+    return bitset->tile_per_row * (i / bitset->sets_per_row) +
+           TILES_PER_SET_MUL (i % bitset->sets_per_row) + pos;
   }
+
+  return -1;
 }
 
 const unsigned tile_bitset_nb_tiles (const tile_bitset bitset)
