@@ -21,6 +21,7 @@ SANDPILE_ALIAS (ssandPile, draw_spirals);
 SANDPILE_DRAW_ALIAS (ssandPile);
 
 int num_threads;
+tileset **tilesets = NULL;
 // Debug facilities
 
 void ssandPile_config (char *param)
@@ -60,6 +61,13 @@ void ssandPile_init_lazy (void)
 void ssandPile_init_omp_lazy (void)
 {
   ssandPile_init_lazy ();
+
+  if (tilesets != NULL)
+    return;
+
+  tilesets = malloc (sizeof (tileset *) * num_threads);
+  for (unsigned i = 0; i < num_threads; i++)
+    tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
 }
 
 void ssandPile_finalize (void)
@@ -67,6 +75,21 @@ void ssandPile_finalize (void)
   const unsigned size = 2 * DIM * DIM * sizeof (TYPE);
 
   ezp_free (TABLE, size);
+}
+
+void ssandPile_finalize_lazy (void)
+{
+  ssandPile_finalize ();
+  tileset_finalize (TILESET);
+}
+
+void ssandPile_finalize_omp_lazy (void)
+{
+  ssandPile_finalize_lazy ();
+  for (unsigned i = 0; i < num_threads; i++)
+    tileset_finalize (tilesets [i]);
+
+  free (tilesets);
 }
 
 int ssandPile_do_tile_default (int x, int y, int width, int height)
@@ -279,21 +302,10 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
     const unsigned long nb_tiles = tileset_nb_tiles (TILESET);
     const tile *restrict tiles   = tileset_flush_tiles (TILESET);
 
-    int ratio = 100 * ((float)nb_tiles) / tileset_get_total_tiles (TILESET);
-    int nb_threads = num_threads; // num_threads * ratio + 1;
-    if (ratio < 50)
-      nb_threads = num_threads >> 1;
-    if (ratio < 25)
-      nb_threads = num_threads >> 2;
-
-    // printf ("Number of tiles dropped to %lu/%lu, ratio is %d"
-    //         "which makes %d "
-    //         "threads\n",
-    //         nb_tiles, tileset_get_total_tiles (TILESET), ratio, nb_threads);
-
-#pragma omp parallel num_threads(nb_threads)
+#pragma omp parallel num_threads(num_threads)
 #pragma omp for schedule(runtime)
     for (unsigned i = 0; i < nb_tiles; i++) {
+      tileset *curr = tilesets [omp_get_thread_num ()];
       unsigned long x, y;
       tile t = tiles [i];
       x      = t.tx * TILE_W;
@@ -306,22 +318,21 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
 
       int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                 TILE_H - y_end - y_0);
-#pragma omp critical
-      {
-        tileset_mark_at (TILESET, loc_change, tiles [i]);
-        tileset_mark_at (TILESET, loc_change,
-                         (tile){.tx = t.tx - 1 + x_0, .ty = t.ty});
-        tileset_mark_at (TILESET, loc_change,
-                         (tile){.tx = t.tx + 1 - x_end, .ty = t.ty});
-        tileset_mark_at (TILESET, loc_change,
-                         (tile){.tx = t.tx, .ty = t.ty + 1 - y_end});
-        tileset_mark_at (TILESET, loc_change,
-                         (tile){.tx = t.tx, .ty = t.ty - 1 + y_0});
+      tileset_mark_at (curr, loc_change, tiles [i]);
+      tileset_mark_at (curr, loc_change,
+                       (tile){.tx = t.tx - 1 + x_0, .ty = t.ty});
+      tileset_mark_at (curr, loc_change,
+                       (tile){.tx = t.tx + 1 - x_end, .ty = t.ty});
+      tileset_mark_at (curr, loc_change,
+                       (tile){.tx = t.tx, .ty = t.ty + 1 - y_end});
+      tileset_mark_at (curr, loc_change,
+                       (tile){.tx = t.tx, .ty = t.ty - 1 + y_0});
 
-        change |= loc_change;
-      }
+#pragma omp atomic
+      change |= loc_change;
     }
 
+    tileset_merge (TILESET, tilesets, num_threads);
     swap_tables ();
     if (change == 0)
       break;
