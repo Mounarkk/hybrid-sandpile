@@ -155,6 +155,47 @@ int ssandPile_do_tile_opt (int x, int y, int width, int height)
   return diff;
 }
 
+int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
+{
+  unsigned int offset = DIM - width;
+  int diff            = 0;
+
+  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
+  TYPE *restrict out_cell = table_cell (TABLE, out, y, x);
+
+  for (int i = 0; i < height; i++) {
+#ifdef __GNUC__
+#pragma GCC                                                                    \
+    unroll 4 /* Here, an unroll of 4 seems to give out the best results*/
+#elif __clang__
+#pragma unroll 4
+#endif
+    for (int j = 0; j < width; j++) {
+      unsigned int b   = (*(in_cell - 1) >> 2);
+      unsigned int old = (*in_cell) & 3;
+      unsigned int a   = (*(in_cell + 1) >> 2);
+      unsigned int c   = (*(in_cell - DIM) >> 2);
+      unsigned int d   = (*(in_cell + DIM) >> 2);
+
+      unsigned int new = a + b + c + d + old;
+
+      unsigned is_border = (i == 0) | (i == height - 1) | (j == 0) | (j == width - 1);
+
+      *out_cell = new;
+      diff |= ((new != old) << is_border);
+
+      in_cell++;
+      out_cell++;
+    }
+
+    in_cell += offset;
+    out_cell += offset;
+  }
+
+  return diff;
+}
+
+
 // Renvoie le nombre d'itérations effectuées avant stabilisation, ou 0
 unsigned ssandPile_compute_seq (unsigned nb_iter)
 {
@@ -271,15 +312,16 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
 
       int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                 TILE_H - y_end - y_0);
+      int is_border = loc_change & 2;
 
-      tileset_mark_at (TILESET, loc_change, tiles [i]);
-      tileset_mark_at (TILESET, loc_change,
+      tileset_mark_at (TILESET, is_border, tiles [i]);
+      tileset_mark_at (TILESET, is_border,
                        (tile){.tx = t.tx - 1 + x_0, .ty = t.ty});
-      tileset_mark_at (TILESET, loc_change,
+      tileset_mark_at (TILESET, is_border,
                        (tile){.tx = t.tx + 1 - x_end, .ty = t.ty});
-      tileset_mark_at (TILESET, loc_change,
+      tileset_mark_at (TILESET, is_border,
                        (tile){.tx = t.tx, .ty = t.ty + 1 - y_end});
-      tileset_mark_at (TILESET, loc_change,
+      tileset_mark_at (TILESET, is_border,
                        (tile){.tx = t.tx, .ty = t.ty - 1 + y_0});
 
       change |= loc_change;
