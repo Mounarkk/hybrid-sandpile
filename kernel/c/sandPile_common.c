@@ -488,7 +488,7 @@ unsigned long tileset_get_total_tiles (tileset *tileset)
   return tileset->tiles_per_row * tileset->nb_rows;
 }
 
-void tileset_merge (tileset *tile, tileset **others, unsigned nb_others)
+int tileset_merge (tileset *tile, tileset **others, unsigned nb_others)
 {
   for (unsigned i = 0; i < nb_others; i++) {
     for (unsigned j = 0; j < tile->total_nb_sets; j++)
@@ -496,14 +496,18 @@ void tileset_merge (tileset *tile, tileset **others, unsigned nb_others)
 
     tileset_mark_empty (others [i]);
   }
-
-  for (unsigned i = 0; i < tile->total_nb_sets; i++)
+  int change = 0;
+  for (unsigned i = 0; i < tile->total_nb_sets; i++) {
     tile->per_set [i] = __builtin_popcountll (tile->sets [i]);
+    change |= (tile->per_set [i] != 0);
+  }
+
+  return change;
 }
 
-void tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others)
+int tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others)
 {
-#pragma omp parallel for
+#pragma omp parallel for schedule(static, 1)
   for (unsigned j = 0; j < tile->total_nb_sets; j++)
     for (unsigned i = 0; i < nb_others; i++) {
       tile->sets [j] |= others [i]->sets [j];
@@ -511,7 +515,13 @@ void tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others)
       others [i]->per_set [j] = 0;
     }
 
-#pragma omp parallel for
-  for (unsigned i = 0; i < tile->total_nb_sets; i++)
+  int change = 0;
+
+#pragma omp parallel for schedule(static, 1) reduction(| : change)
+  for (unsigned i = 0; i < tile->total_nb_sets; i++) {
     tile->per_set [i] = __builtin_popcountll (tile->sets [i]);
+    change |= (tile->per_set [i] != 0);
+  }
+
+  return change;
 }

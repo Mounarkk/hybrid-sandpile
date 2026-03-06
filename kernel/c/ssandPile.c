@@ -329,9 +329,8 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
                        (tile){.tx = t.tx, .ty = t.ty - 1 + y_0});
     }
 
-    tileset_merge_omp (TILESET, tilesets, num_threads);
     swap_tables ();
-    change = tileset_nb_tiles (TILESET);
+    change = tileset_merge_omp (TILESET, tilesets, num_threads);
     if (change == 0)
       break;
   }
