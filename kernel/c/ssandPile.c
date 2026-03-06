@@ -303,7 +303,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
     const tile *restrict tiles   = tileset_flush_tiles (TILESET);
 
 #pragma omp parallel num_threads(num_threads)
-#pragma omp for schedule(runtime)
+#pragma omp for schedule(static)
     for (unsigned i = 0; i < nb_tiles; i++) {
       tileset *curr = tilesets [omp_get_thread_num ()];
       unsigned long x, y;
