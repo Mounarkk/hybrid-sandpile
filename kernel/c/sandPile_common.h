@@ -54,6 +54,14 @@ void sandPile_debug (int x, int y);
     hooks_draw_helper (param, kernel##_draw_4partout);                         \
   }
 
+#define SANDPILE_STR(x) #x
+
+#ifdef __GNUC__
+#define SANDPILE_UNROLL_LOOP(x) _Pragma (SANDPILE_STR (GCC unroll x))
+#elif __clang__
+#define SANDPILE_UNROLL_LOOP(x) _Pragma (SANDPILE_STR (unroll x))
+#endif
+
 // =========================================================================
 // LAZY EVALUATION QUADTREE
 // =========================================================================

@@ -448,11 +448,6 @@ void tileset_mark_at (tileset *tileset, int change, const tile t)
       t.ty * tileset->sets_per_row + (TILES_PER_SET_DIV (t.tx));
   bitset bit = tileset_at (TILES_PER_SET_MOD (t.tx));
 
-  // change *= ty >= 0;
-  // change *= tx >= 0;
-  // change *= ty < tileset->nb_rows;
-  // change *= tx < tileset->tiles_per_row;
-
   tileset->per_set [index] += change * ((tileset->sets [index] & bit) == 0);
   tileset->sets [index] |= bit * change;
 }
@@ -508,7 +503,7 @@ int tileset_merge (tileset *tile, tileset **others, unsigned nb_others)
 int tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others)
 {
 
-#pragma omp parallel for schedule(static) 
+#pragma omp parallel for schedule(static)
   for (unsigned j = 0; j < tile->total_nb_sets; j++)
     for (unsigned i = 0; i < nb_others; i++) {
       tile->sets [j] |= others [i]->sets [j];
@@ -519,9 +514,8 @@ int tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others)
   int change = 0;
   for (unsigned i = 0; i < tile->total_nb_sets; i++) {
     tile->per_set [i] = __builtin_popcountll (tile->sets [i]);
-    change |= tile->per_set[i];
+    change |= tile->per_set [i];
   }
-
 
   return change;
 }
