@@ -500,3 +500,17 @@ void tileset_merge (tileset *tile, tileset **others, unsigned nb_others)
   for (unsigned i = 0; i < tile->total_nb_sets; i++)
     tile->per_set [i] = __builtin_popcountll (tile->sets [i]);
 }
+
+void tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others)
+{
+#pragma omp parallel for
+  for (unsigned j = 0; j < tile->total_nb_sets; j++)
+    for (unsigned i = 0; i < nb_others; i++) {
+      tile->sets [j] |= others [i]->sets [j];
+
+      tileset_mark_empty (others [i]);
+    }
+#pragma omp parallel for
+  for (unsigned i = 0; i < tile->total_nb_sets; i++)
+    tile->per_set [i] = __builtin_popcountll (tile->sets [i]);
+}

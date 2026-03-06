@@ -332,7 +332,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
       change |= loc_change;
     }
 
-    tileset_merge (TILESET, tilesets, num_threads);
+    tileset_merge_omp (TILESET, tilesets, num_threads);
     swap_tables ();
     if (change == 0)
       break;

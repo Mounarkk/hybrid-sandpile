@@ -193,5 +193,6 @@ void tileset_trunc (tileset *tileset);
 unsigned long tileset_get_total_tiles (tileset *tileset);
 
 void tileset_merge (tileset *tile, tileset **others, unsigned nb_others);
+void tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others);
 
 #endif // SANDPILE_COMMON_H
