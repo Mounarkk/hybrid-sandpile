@@ -188,6 +188,8 @@ void tileset_finalize (tileset *tileset);
 
 const tile *tileset_flush_tiles (tileset *tileset);
 
+const tile *tileset_flush_tiles_omp (tileset *tileset);
+
 const unsigned tileset_nb_tiles (const tileset *tileset);
 
 void tileset_mark_at (tileset *tileset, const int change, const tile t);

@@ -183,7 +183,6 @@ int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
     int is_border_up   = (i == 0);
     int is_border_down = (i == (height - 1));
 
-    // SANDPILE_UNROLL_LOOP (4)
     for (int j = 0; j < width; j++) {
       int is_border_left  = (j == 0);
       int is_border_right = (j == (width - 1));
@@ -202,9 +201,6 @@ int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
       diff |= loc_diff << (2 * is_border_down);
       diff |= loc_diff << (3 * is_border_left);
       diff |= loc_diff << (4 * is_border_right);
-
-      // printf ("(%d, %d, %d, %d),(%d, %d, %d, %d)\n", i, j, height, width,
-      //         is_border_up, is_border_down, is_border_left, is_border_right);
 
       *out_cell = new;
       in_cell++;
@@ -468,7 +464,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     const unsigned long nb_tiles = tileset_nb_tiles (TILESET);
     const tile *restrict tiles   = tileset_flush_tiles (TILESET);
 
-#pragma omp parallel num_threads(num_threads)
+#pragma omp parallel 
 #pragma omp for schedule(static)
     for (unsigned i = 0; i < nb_tiles; i++) {
       tileset *curr = tilesets [omp_get_thread_num ()];
@@ -505,7 +501,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     }
 
     swap_tables ();
-    change = tileset_merge_omp (TILESET, tilesets, num_threads);
+    change = tileset_merge (TILESET, tilesets, num_threads);
     if (change == 0)
       break;
   }

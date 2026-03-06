@@ -343,10 +343,10 @@ struct _tileset
 static inline const bitset tileset_at (const unsigned at)
 {
   unsigned index = TILES_PER_SET - at - 1;
-  int in_range   = at < TILES_PER_SET;
-  return (((bitset)1) << index) * in_range;
+  return ((bitset)1) << index;
 }
 
+/* debug function */
 static inline void bitset_print (const bitset bitset)
 {
   printf ("{");
@@ -419,7 +419,7 @@ const tile *tileset_flush_tiles (tileset *tileset)
 
     for (unsigned char k = 0; k < in_set; k++) {
       unsigned pos = __builtin_clzll (tileset->sets [i]);
-      tileset->sets [i] &= ~tileset_at (pos);
+      tileset->sets [i] -= tileset_at (pos);
 
       tileset->tiles [found].tx   = TILES_PER_SET_MUL (set_x) + pos;
       tileset->tiles [found++].ty = tile_y;
@@ -427,6 +427,42 @@ const tile *tileset_flush_tiles (tileset *tileset)
 
     tileset->per_set [i] = 0;
     tileset->sets [i]    = 0;
+  }
+
+  return tileset->tiles;
+}
+
+const tile *tileset_flush_tiles_omp (tileset *tileset)
+{
+  unsigned long long found = 0;
+
+
+  tile tiles[omp_get_max_threads()][TILES_PER_SET];
+#pragma omp parallel for schedule(static,16)
+  for (unsigned i = 0; i < tileset->total_nb_sets; i++) {
+    unsigned char in_set = tileset->per_set [i];
+    unsigned long set_x  = i % tileset->sets_per_row;
+    unsigned long tile_y = i / tileset->sets_per_row;
+
+    int th = omp_get_thread_num();
+    unsigned long loc_found = 0;
+
+    for (unsigned char k = 0; k < in_set; k++) {
+      unsigned pos = __builtin_clzll (tileset->sets [i]);
+      tileset->sets [i] -= tileset_at (pos);
+
+      tiles[th] [loc_found].tx   = TILES_PER_SET_MUL (set_x) + pos;
+      tiles[th] [loc_found++].ty = tile_y;
+    }
+
+    tileset->per_set [i] = 0;
+    tileset->sets [i]    = 0;
+
+#pragma omp critical
+    {
+      memcpy(tileset->tiles + found, tiles[th], loc_found * sizeof(tile));
+      found += loc_found;
+    }
   }
 
   return tileset->tiles;
