@@ -99,6 +99,7 @@ void qt_destroy (void);
 
 // Marking
 void qt_mark_all_dirty (void);
+void qt_mark_one_dirty_nxt (int tx, int ty);
 void qt_mark_dirty_with_neighbors (int tx, int ty);
 
 // Iteration management

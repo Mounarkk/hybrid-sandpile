@@ -222,7 +222,7 @@ void qt_mark_all_dirty (void)
 
 // Mark a single tile dirty in the nxt array and propagate up to root.
 // The early exit when a parent is already dirty makes this O(1) amortized.
-static void qt_mark_one_dirty_nxt (int tx, int ty)
+void qt_mark_one_dirty_nxt (int tx, int ty)
 {
   int leaf_level                                   = lazy_qt.depth - 1;
   lazy_qt.nxt [qt_node_index (leaf_level, ty, tx)] = QT_DIRTY;
