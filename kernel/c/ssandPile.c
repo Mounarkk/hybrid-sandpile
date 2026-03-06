@@ -327,13 +327,11 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
                        (tile){.tx = t.tx, .ty = t.ty + 1 - y_end});
       tileset_mark_at (curr, loc_change,
                        (tile){.tx = t.tx, .ty = t.ty - 1 + y_0});
-
-#pragma omp atomic
-      change |= loc_change;
     }
 
     tileset_merge_omp (TILESET, tilesets, num_threads);
     swap_tables ();
+    change = tileset_nb_tiles (TILESET);
     if (change == 0)
       break;
   }
