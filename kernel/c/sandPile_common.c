@@ -322,9 +322,9 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 #define ALIGN_TO(addr, align) ((addr + align - 1) & ~(align - 1))
 
 #define TILES_PER_SET 64
-#define TILES_PER_SET_MOD(x) (x & (TILES_PER_SET - 1))
-#define TILES_PER_SET_DIV(x) (x >> 6)
-#define TILES_PER_SET_MUL(x) (x << 6)
+#define TILES_PER_SET_MOD(x) ((x) & (TILES_PER_SET - 1))
+#define TILES_PER_SET_DIV(x) ((x) >> 6)
+#define TILES_PER_SET_MUL(x) ((x) << 6)
 
 #define TILESET_MEM_PADDING 64
 
