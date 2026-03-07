@@ -173,36 +173,39 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
 //
 // The bitsets act more like an iterator over the tiles.
 // Getting the next tile is then akin to popping it.
-typedef struct _tileset tileset;
+typedef struct _tileset *restrict tileset_t;
 
 typedef struct
 {
   unsigned long tx, ty;
 } tile;
 
-extern tileset *restrict TILESET;
+extern tileset_t TILESET;
 
-tileset *tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
+tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 
-void tileset_finalize (tileset *tileset);
+void tileset_finalize (tileset_t tileset);
 
-const tile *tileset_flush_tiles (tileset *tileset);
+const tile *restrict tileset_flush_tiles (tileset_t tileset);
 
-const tile *tileset_flush_tiles_omp (tileset *tileset);
+const tile *restrict tileset_flush_tiles_omp (tileset_t tileset);
 
-const unsigned tileset_nb_tiles (const tileset *tileset);
+const unsigned tileset_nb_tiles (const tileset_t tileset);
 
-void tileset_mark_at (tileset *tileset, const int change, const tile t);
+void tileset_mark_at (tileset_t tileset, const int change, const tile t);
 
-void tileset_mark_full (tileset *tileset);
+void tileset_mark_full (tileset_t tileset);
 
-void tileset_mark_empty (tileset *tileset);
+void tileset_mark_empty (tileset_t tileset);
 
-void tileset_trunc (tileset *tileset);
+void tileset_trunc (tileset_t tileset);
 
-unsigned long tileset_get_total_tiles (tileset *tileset);
+unsigned long tileset_get_total_tiles (tileset_t tileset);
 
-int tileset_merge (tileset *tile, tileset **others, unsigned nb_others);
-int tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others);
+int tileset_merge (tileset_t tileset, tileset_t *restrict others,
+                   unsigned nb_others);
+
+int tileset_merge_omp (tileset_t tileset, tileset_t *restrict others,
+                       unsigned nb_others);
 
 #endif // SANDPILE_COMMON_H

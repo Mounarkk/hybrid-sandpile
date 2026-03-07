@@ -21,7 +21,7 @@ SANDPILE_ALIAS (ssandPile, draw_spirals);
 SANDPILE_DRAW_ALIAS (ssandPile);
 
 int num_threads;
-tileset **restrict tilesets = NULL;
+tileset_t *restrict tilesets = NULL;
 // Debug facilities
 
 void ssandPile_config (char *param)
@@ -53,7 +53,6 @@ void ssandPile_init_lazy (void)
 
   if (TILESET != NULL)
     return;
-
   TILESET = tileset_init (NB_TILES_X, NB_TILES_Y);
   tileset_mark_full (TILESET);
 }
@@ -65,12 +64,15 @@ void ssandPile_init_lazy_border (void)
 
 void ssandPile_init_omp_lazy (void)
 {
-  ssandPile_init_lazy ();
+  ssandPile_init ();
 
-  if (tilesets != NULL)
+  if (TILESET != NULL)
     return;
 
-  tilesets = malloc (sizeof (tileset *) * num_threads);
+  TILESET = tileset_init (NB_TILES_X, NB_TILES_Y);
+  tileset_mark_full (TILESET);
+
+  tilesets = malloc (sizeof (tileset_t *) * num_threads);
   for (unsigned i = 0; i < num_threads; i++)
     tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
 }
@@ -100,11 +102,13 @@ void ssandPile_finalize_lazy_border (void)
 
 void ssandPile_finalize_omp_lazy (void)
 {
-  ssandPile_finalize_lazy ();
+  ssandPile_finalize ();
+  tileset_finalize (TILESET);
+
   for (unsigned i = 0; i < num_threads; i++)
     tileset_finalize (tilesets [i]);
 
-  free (tilesets);
+  free ((void *)tilesets);
 }
 
 void ssandPile_finalize_omp_lazy_border (void)
@@ -201,10 +205,6 @@ int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
       int left_flag  = loc_diff << (3 * is_border_left);
       int right_flag = loc_diff << (4 * is_border_right);
       diff |= loc_diff | up_flag | down_flag | left_flag | right_flag;
-
-      // diff |= loc_diff | ( loc_diff << (1 * is_border_up)) | (loc_diff << (2
-      // * is_border_down)) | (loc_diff << (3 * is_border_left)) | (loc_diff <<
-      // (4 * is_border_right));
 
       *out_cell = new;
       in_cell++;
@@ -380,24 +380,22 @@ unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
       int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                 TILE_H - y_end - y_0);
 
-      int mark_self = loc_change & 1;
-      tile self     = t;
-      tileset_mark_at (TILESET, mark_self, self);
-
-      int mark_up = (loc_change >> 1) & 1;
-      tile up     = {.tx = t.tx, .ty = t.ty - 1 + y_0};
-      tileset_mark_at (TILESET, mark_up, up);
-
-      int mark_down = (loc_change >> 2) & 1;
-      tile down     = {.tx = t.tx, .ty = t.ty + 1 - y_end};
-      tileset_mark_at (TILESET, mark_down, down);
-
-      int mark_left = (loc_change >> 3) & 1;
-      tile left     = {.tx = t.tx - 1 + x_0, .ty = t.ty};
-      tileset_mark_at (TILESET, mark_left, left);
-
+      int mark_self  = loc_change & 1;
+      int mark_up    = (loc_change >> 1) & 1;
+      int mark_down  = (loc_change >> 2) & 1;
+      int mark_left  = (loc_change >> 3) & 1;
       int mark_right = (loc_change >> 4) & 1;
-      tile right     = {.tx = t.tx + 1 - x_end, .ty = t.ty};
+
+      tile self  = t;
+      tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
+      tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
+      tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
+      tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
+
+      tileset_mark_at (TILESET, mark_self, self);
+      tileset_mark_at (TILESET, mark_up, up);
+      tileset_mark_at (TILESET, mark_down, down);
+      tileset_mark_at (TILESET, mark_left, left);
       tileset_mark_at (TILESET, mark_right, right);
 
       change |= loc_change;
@@ -423,7 +421,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
 #pragma omp parallel num_threads(num_threads)
 #pragma omp for schedule(static)
     for (unsigned i = 0; i < nb_tiles; i++) {
-      tileset *curr = tilesets [omp_get_thread_num ()];
+      tileset_t curr = tilesets [omp_get_thread_num ()];
       unsigned long x, y;
       tile t = tiles [i];
       x      = t.tx * TILE_W;
@@ -472,7 +470,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
 #pragma omp parallel for schedule(static) shared(TABLE, tiles, nb_tiles)
     for (unsigned i = 0; i < nb_tiles; i++) {
-      tileset *restrict curr = tilesets [omp_get_thread_num ()];
+      tileset_t curr = tilesets [omp_get_thread_num ()];
       unsigned long x, y;
       tile t = tiles [i];
       x      = t.tx * TILE_W;
