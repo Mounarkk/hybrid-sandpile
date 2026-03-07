@@ -326,6 +326,8 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 #define TILES_PER_SET_DIV(x) (x >> 6)
 #define TILES_PER_SET_MUL(x) (x << 6)
 
+#define TILESET_MEM_PADDING 64
+
 tileset *restrict TILESET = NULL;
 
 typedef uint64_t bitset;
@@ -333,7 +335,7 @@ typedef uint64_t bitset;
 struct _tileset
 {
   bitset *restrict sets;
-  unsigned char *per_set;
+  unsigned char *restrict per_set;
   tile *restrict tiles;
 
   bitset trunc_mask;
@@ -370,6 +372,7 @@ tileset *tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   total_size += sizeof (bitset) * total_nb_sets + alignof (bitset);
   total_size += sizeof (char) * total_nb_sets + alignof (char);
   total_size += sizeof (tile) * total_tiles + alignof (tile);
+  total_size += sizeof (tile) * TILESET_MEM_PADDING * 3;
 
   // Allocate as one big continuous chunk of memory
   // This is horrible and I wish I didn't
@@ -380,15 +383,15 @@ tileset *tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   // For every vec used,
   // Align the pointer to the correct alignment for the data type
   int alignment  = alignof (bitset);
-  uintptr_t addr = (uintptr_t)(tileset + 1);
+  uintptr_t addr = ((uintptr_t)(tileset + 1)) + TILESET_MEM_PADDING;
   tileset->sets  = (bitset *)ALIGN_TO (addr, alignment);
 
   alignment        = alignof (char);
-  addr             = (uintptr_t)(tileset->sets + total_nb_sets);
+  addr             = ((uintptr_t)(tileset->sets + total_nb_sets)) + TILESET_MEM_PADDING;
   tileset->per_set = (unsigned char *)ALIGN_TO (addr, alignment);
 
   alignment      = alignof (tile);
-  addr           = (uintptr_t)(tileset->per_set + total_nb_sets);
+  addr           = ((uintptr_t)(tileset->per_set + total_nb_sets)) + TILESET_MEM_PADDING;
   tileset->tiles = (tile *)ALIGN_TO (addr, alignment);
 
   tileset->trunc_mask    = trunc_mask;
@@ -434,38 +437,34 @@ const tile *tileset_flush_tiles (tileset *tileset)
 
 const tile *tileset_flush_tiles_omp (tileset *tileset)
 {
-  unsigned long long found = 0;
+  unsigned long long places[tileset->total_nb_sets];
+  places[0] = 0;
+  for (unsigned i = 1; i < tileset->total_nb_sets; i++) 
+    places[i] = places[i - 1] + tileset->per_set[i - 1];
 
-
-  tile tiles[omp_get_max_threads()][TILES_PER_SET];
-#pragma omp parallel for schedule(static,16)
+ tile register * tiles = tileset->tiles; 
+#pragma omp parallel for schedule(static) shared(places)
   for (unsigned i = 0; i < tileset->total_nb_sets; i++) {
-    unsigned char in_set = tileset->per_set [i];
-    unsigned long set_x  = i % tileset->sets_per_row;
-    unsigned long tile_y = i / tileset->sets_per_row;
+    unsigned loc_found = 0;
+    tile *restrict loc_tiles = tiles + places[i]; 
 
-    int th = omp_get_thread_num();
-    unsigned long loc_found = 0;
+    unsigned char in_set = tileset->per_set [i];
+    unsigned tile_y = i / tileset->sets_per_row;
+    unsigned set_x  = i - tile_y * tileset->sets_per_row;
 
     for (unsigned char k = 0; k < in_set; k++) {
       unsigned pos = __builtin_clzll (tileset->sets [i]);
       tileset->sets [i] -= tileset_at (pos);
 
-      tiles[th] [loc_found].tx   = TILES_PER_SET_MUL (set_x) + pos;
-      tiles[th] [loc_found++].ty = tile_y;
+      loc_tiles[loc_found].tx   = TILES_PER_SET_MUL (set_x) + pos;
+      loc_tiles[loc_found++].ty = tile_y;
     }
 
     tileset->per_set [i] = 0;
     tileset->sets [i]    = 0;
-
-#pragma omp critical
-    {
-      memcpy(tileset->tiles + found, tiles[th], loc_found * sizeof(tile));
-      found += loc_found;
-    }
   }
 
-  return tileset->tiles;
+  return tiles;
 }
 
 const unsigned tileset_nb_tiles (const tileset *tileset)
@@ -536,10 +535,10 @@ int tileset_merge (tileset *tile, tileset **others, unsigned nb_others)
   return change;
 }
 
-int tileset_merge_omp (tileset *tile, tileset **others, unsigned nb_others)
+int tileset_merge_omp (tileset *tile, tileset **restrict others, unsigned nb_others)
 {
 
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static) shared(others)
   for (unsigned j = 0; j < tile->total_nb_sets; j++)
     for (unsigned i = 0; i < nb_others; i++) {
       tile->sets [j] |= others [i]->sets [j];

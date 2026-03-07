@@ -21,7 +21,7 @@ SANDPILE_ALIAS (ssandPile, draw_spirals);
 SANDPILE_DRAW_ALIAS (ssandPile);
 
 int num_threads;
-tileset **tilesets = NULL;
+tileset **restrict tilesets = NULL;
 // Debug facilities
 
 void ssandPile_config (char *param)
@@ -182,7 +182,7 @@ int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
   for (int i = 0; i < height; i++) {
     int is_border_up   = (i == 0);
     int is_border_down = (i == (height - 1));
-
+    
     for (int j = 0; j < width; j++) {
       int is_border_left  = (j == 0);
       int is_border_right = (j == (width - 1));
@@ -196,11 +196,13 @@ int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
       unsigned int new  = a + b + c + d + old;
       unsigned loc_diff = (new != old);
 
-      diff |= loc_diff;
-      diff |= loc_diff << (1 * is_border_up);
-      diff |= loc_diff << (2 * is_border_down);
-      diff |= loc_diff << (3 * is_border_left);
-      diff |= loc_diff << (4 * is_border_right);
+      int up_flag = loc_diff << (1 * is_border_up);
+      int down_flag = loc_diff << (2 * is_border_down);
+      int left_flag = loc_diff << (3 * is_border_left);
+      int right_flag = loc_diff << (4 * is_border_right);
+      diff |= loc_diff | up_flag | down_flag | left_flag | right_flag;
+
+      //diff |= loc_diff | ( loc_diff << (1 * is_border_up)) | (loc_diff << (2 * is_border_down)) | (loc_diff << (3 * is_border_left)) | (loc_diff << (4 * is_border_right));
 
       *out_cell = new;
       in_cell++;
@@ -377,21 +379,23 @@ unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
                                 TILE_H - y_end - y_0);
 
       int mark_self  = loc_change & 1;
-      int mark_up    = (loc_change >> 1) & 1;
-      int mark_down  = (loc_change >> 2) & 1;
-      int mark_left  = (loc_change >> 3) & 1;
-      int mark_right = (loc_change >> 4) & 1;
-
       tile self  = t;
-      tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
-      tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
-      tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
-      tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
-
       tileset_mark_at (TILESET, mark_self, self);
+
+      int mark_up    = (loc_change >> 1) & 1;
+      tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
       tileset_mark_at (TILESET, mark_up, up);
+
+      int mark_down  = (loc_change >> 2) & 1;
+      tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
       tileset_mark_at (TILESET, mark_down, down);
+
+      int mark_left  = (loc_change >> 3) & 1;
+      tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
       tileset_mark_at (TILESET, mark_left, left);
+
+      int mark_right = (loc_change >> 4) & 1;
+      tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
       tileset_mark_at (TILESET, mark_right, right);
 
       change |= loc_change;
@@ -462,12 +466,11 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     int change = 0;
 
     const unsigned long nb_tiles = tileset_nb_tiles (TILESET);
-    const tile *restrict tiles   = tileset_flush_tiles (TILESET);
+    const tile *restrict tiles   = tileset_flush_tiles_omp (TILESET);
 
-#pragma omp parallel 
-#pragma omp for schedule(static)
+  #pragma omp parallel for schedule(static) shared(TABLE, tiles, nb_tiles)
     for (unsigned i = 0; i < nb_tiles; i++) {
-      tileset *curr = tilesets [omp_get_thread_num ()];
+      tileset *restrict curr = tilesets [omp_get_thread_num ()];
       unsigned long x, y;
       tile t = tiles [i];
       x      = t.tx * TILE_W;
@@ -481,17 +484,17 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
       int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                 TILE_H - y_end - y_0);
 
-      int mark_self  = loc_change & 1;
-      int mark_up    = (loc_change >> 1) & 1;
-      int mark_down  = (loc_change >> 2) & 1;
-      int mark_left  = (loc_change >> 3) & 1;
-      int mark_right = (loc_change >> 4) & 1;
-
       tile self  = t;
       tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
       tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
       tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
       tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
+
+      int mark_self  = loc_change & 1;
+      int mark_up    = (loc_change >> 1) & 1;
+      int mark_down  = (loc_change >> 2) & 1;
+      int mark_left  = (loc_change >> 3) & 1;
+      int mark_right = (loc_change >> 4) & 1;
 
       tileset_mark_at (curr, mark_self, self);
       tileset_mark_at (curr, mark_up, up);
@@ -501,7 +504,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     }
 
     swap_tables ();
-    change = tileset_merge (TILESET, tilesets, num_threads);
+    change = tileset_merge_omp (TILESET, tilesets, num_threads);
     if (change == 0)
       break;
   }
