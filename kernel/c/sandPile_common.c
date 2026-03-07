@@ -386,12 +386,12 @@ tileset *tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   uintptr_t addr = ((uintptr_t)(tileset + 1)) + TILESET_MEM_PADDING;
   tileset->sets  = (bitset *)ALIGN_TO (addr, alignment);
 
-  alignment        = alignof (char);
-  addr             = ((uintptr_t)(tileset->sets + total_nb_sets)) + TILESET_MEM_PADDING;
+  alignment = alignof (char);
+  addr = ((uintptr_t)(tileset->sets + total_nb_sets)) + TILESET_MEM_PADDING;
   tileset->per_set = (unsigned char *)ALIGN_TO (addr, alignment);
 
-  alignment      = alignof (tile);
-  addr           = ((uintptr_t)(tileset->per_set + total_nb_sets)) + TILESET_MEM_PADDING;
+  alignment = alignof (tile);
+  addr = ((uintptr_t)(tileset->per_set + total_nb_sets)) + TILESET_MEM_PADDING;
   tileset->tiles = (tile *)ALIGN_TO (addr, alignment);
 
   tileset->trunc_mask    = trunc_mask;
@@ -437,27 +437,27 @@ const tile *tileset_flush_tiles (tileset *tileset)
 
 const tile *tileset_flush_tiles_omp (tileset *tileset)
 {
-  unsigned long long places[tileset->total_nb_sets];
-  places[0] = 0;
-  for (unsigned i = 1; i < tileset->total_nb_sets; i++) 
-    places[i] = places[i - 1] + tileset->per_set[i - 1];
+  unsigned long long places [tileset->total_nb_sets];
+  places [0] = 0;
+  for (unsigned i = 1; i < tileset->total_nb_sets; i++)
+    places [i] = places [i - 1] + tileset->per_set [i - 1];
 
- tile register * tiles = tileset->tiles; 
+  tile register *tiles = tileset->tiles;
 #pragma omp parallel for schedule(static) shared(places)
   for (unsigned i = 0; i < tileset->total_nb_sets; i++) {
-    unsigned loc_found = 0;
-    tile *restrict loc_tiles = tiles + places[i]; 
+    unsigned loc_found       = 0;
+    tile *restrict loc_tiles = tiles + places [i];
 
     unsigned char in_set = tileset->per_set [i];
-    unsigned tile_y = i / tileset->sets_per_row;
-    unsigned set_x  = i - tile_y * tileset->sets_per_row;
+    unsigned tile_y      = i / tileset->sets_per_row;
+    unsigned set_x       = i - tile_y * tileset->sets_per_row;
 
     for (unsigned char k = 0; k < in_set; k++) {
       unsigned pos = __builtin_clzll (tileset->sets [i]);
       tileset->sets [i] -= tileset_at (pos);
 
-      loc_tiles[loc_found].tx   = TILES_PER_SET_MUL (set_x) + pos;
-      loc_tiles[loc_found++].ty = tile_y;
+      loc_tiles [loc_found].tx   = TILES_PER_SET_MUL (set_x) + pos;
+      loc_tiles [loc_found++].ty = tile_y;
     }
 
     tileset->per_set [i] = 0;
@@ -535,7 +535,8 @@ int tileset_merge (tileset *tile, tileset **others, unsigned nb_others)
   return change;
 }
 
-int tileset_merge_omp (tileset *tile, tileset **restrict others, unsigned nb_others)
+int tileset_merge_omp (tileset *tile, tileset **restrict others,
+                       unsigned nb_others)
 {
 
 #pragma omp parallel for schedule(static) shared(others)
