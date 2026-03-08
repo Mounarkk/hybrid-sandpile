@@ -321,7 +321,7 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 
 /* ===== Memory layout configuration =====
  * Those were placed to evaluate how memory layout could affect performance */
-#define TILESET_MEM_PADDING 64 /* Padding between the allocated memory */
+#define TILESET_MEM_PADDING 128 /* Padding between the allocated memory */
 #define TILESET_MEM_ALIGN 1    /* Align the values of the struct */
 
 #if TILESET_MEM_ALIGN == 1
