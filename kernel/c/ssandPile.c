@@ -465,42 +465,56 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    const unsigned long nb_tiles = tileset_nb_tiles (TILESET);
-    const tile *restrict tiles   = tileset_flush_tiles_omp (TILESET);
+    // const tile *restrict tiles   = tileset_flush_tiles_omp (*TILESET);
+    uint64_t *sets                  = tileset_get_sets (TILESET [0]);
+    unsigned total_sets             = tileset_get_total_nb_sets (TILESET [0]);
+    unsigned sets_per_row           = tileset_get_set_per_row (TILESET [0]);
+    unsigned char *restrict per_set = tileset_get_per_sets (TILESET [0]);
 
-#pragma omp parallel for schedule(static) shared(TABLE, tiles, nb_tiles)
-    for (unsigned i = 0; i < nb_tiles; i++) {
-      tileset_t curr = tilesets [omp_get_thread_num ()];
-      unsigned long x, y;
-      tile t = tiles [i];
-      x      = t.tx * TILE_W;
-      y      = t.ty * TILE_H;
+#pragma omp parallel for schedule(static) shared(TABLE)
+    for (unsigned i = 0; i < total_sets; i++) {
+      tileset_t curr       = tilesets [omp_get_thread_num ()];
+      unsigned char in_set = per_set [i];
+      unsigned tile_y      = i / sets_per_row;
+      unsigned set_x       = i - tile_y * sets_per_row;
+      for (unsigned char k = 0; k < in_set; k++) {
+        unsigned pos = __builtin_clzll (sets [i]);
+        sets [i] -= bitset_at (pos);
 
-      int y_0   = (y == 0);
-      int x_0   = (x == 0);
-      int y_end = (y + TILE_H == DIM);
-      int x_end = (x + TILE_W == DIM);
+        tile t;
+        t.tx = TILES_PER_SET_MUL (set_x) + pos;
+        t.ty = tile_y;
 
-      int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
-                                TILE_H - y_end - y_0);
+        unsigned long x, y;
+        x = t.tx * TILE_W;
+        y = t.ty * TILE_H;
 
-      tile self  = t;
-      tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
-      tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
-      tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
-      tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
+        int y_0   = (y == 0);
+        int x_0   = (x == 0);
+        int y_end = (y + TILE_H == DIM);
+        int x_end = (x + TILE_W == DIM);
 
-      int mark_self  = loc_change & 1;
-      int mark_up    = (loc_change >> 1) & 1;
-      int mark_down  = (loc_change >> 2) & 1;
-      int mark_left  = (loc_change >> 3) & 1;
-      int mark_right = (loc_change >> 4) & 1;
+        int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
+                                  TILE_H - y_end - y_0);
 
-      tileset_mark_at (curr, mark_self, self);
-      tileset_mark_at (curr, mark_up, up);
-      tileset_mark_at (curr, mark_down, down);
-      tileset_mark_at (curr, mark_left, left);
-      tileset_mark_at (curr, mark_right, right);
+        tile self  = t;
+        tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
+        tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
+        tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
+        tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
+
+        int mark_self  = loc_change & 1;
+        int mark_up    = (loc_change >> 1) & 1;
+        int mark_down  = (loc_change >> 2) & 1;
+        int mark_left  = (loc_change >> 3) & 1;
+        int mark_right = (loc_change >> 4) & 1;
+
+        tileset_mark_at (curr, mark_self, self);
+        tileset_mark_at (curr, mark_up, up);
+        tileset_mark_at (curr, mark_down, down);
+        tileset_mark_at (curr, mark_left, left);
+        tileset_mark_at (curr, mark_right, right);
+      }
     }
 
     swap_tables ();

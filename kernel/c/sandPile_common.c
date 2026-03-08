@@ -319,13 +319,6 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 // =========================================================================
 //
 
-/* ===== Size macro ===== */
-#define TILES_PER_SET 64
-/* Quick operations based on the value of TILES_PER_SET (power of 2) */
-#define TILES_PER_SET_MOD(x) ((x) & (TILES_PER_SET - 1))
-#define TILES_PER_SET_DIV(x) ((x) >> 6)
-#define TILES_PER_SET_MUL(x) ((x) << 6)
-
 /* ===== Memory layout configuration =====
  * Those were placed to evaluate how memory layout could affect performance */
 #define TILESET_MEM_PADDING 64 /* Padding between the allocated memory */
@@ -344,8 +337,6 @@ tileset_t TILESET = NULL;
 
 /* ===== Types definitions ===== */
 
-typedef uint64_t bitset;
-
 struct _tileset
 {
   bitset *restrict sets;
@@ -356,22 +347,7 @@ struct _tileset
   unsigned sets_per_row, tiles_per_row, nb_rows, total_nb_sets;
 };
 
-/* ===== Tileset and Bitset functions ===== */
-
-static inline const bitset bitset_at (const unsigned at)
-{
-  unsigned index = TILES_PER_SET - at - 1;
-  return ((bitset)1) << index;
-}
-
-/* Debug function */
-static inline void bitset_print (const bitset bitset)
-{
-  printf ("{");
-  for (int i = 0; i < TILES_PER_SET - 1; i++)
-    printf ("%c,", bitset & bitset_at (i) ? '1' : '0');
-  printf ("%c}\n", bitset & bitset_at (TILES_PER_SET - 1) ? '1' : '0');
-}
+/* ===== Tileset functions ===== */
 
 /* Emplace the memory of the tileset
  * Memory is expected to be allocated as in tileset_alloc_n function */
@@ -469,6 +445,29 @@ const tile *restrict tileset_flush_tiles (tileset_t tileset)
   }
 
   return tileset->tiles;
+}
+
+const tile *restrict tileset_get_tiles (tileset_t tileset)
+{
+  return tileset->tiles;
+}
+
+bitset *restrict tileset_get_sets (tileset_t tileset)
+{
+  return tileset->sets;
+}
+
+const unsigned int tileset_get_set_per_row (tileset_t tileset)
+{
+  return tileset->sets_per_row;
+}
+const unsigned tileset_get_total_nb_sets (tileset_t tileset)
+{
+  return tileset->total_nb_sets;
+}
+unsigned char *restrict tileset_get_per_sets (tileset_t tileset)
+{
+  return tileset->per_set;
 }
 
 const tile *restrict tileset_flush_tiles_omp (tileset_t tileset)

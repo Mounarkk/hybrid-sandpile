@@ -173,6 +173,14 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
 //
 // The bitsets act more like an iterator over the tiles.
 // Getting the next tile is then akin to popping it.
+
+/* ===== Size macro ===== */
+#define TILES_PER_SET 64
+/* Quick operations based on the value of TILES_PER_SET (power of 2) */
+#define TILES_PER_SET_MOD(x) ((x) & (TILES_PER_SET - 1))
+#define TILES_PER_SET_DIV(x) ((x) >> 6)
+#define TILES_PER_SET_MUL(x) ((x) << 6)
+
 typedef struct _tileset *restrict tileset_t;
 
 typedef struct
@@ -181,6 +189,22 @@ typedef struct
 } tile;
 
 extern tileset_t TILESET;
+typedef uint64_t bitset;
+
+static inline const bitset bitset_at (const unsigned at)
+{
+  unsigned index = TILES_PER_SET - at - 1;
+  return ((bitset)1) << index;
+}
+
+/* Debug function */
+static inline void bitset_print (const bitset bitset)
+{
+  printf ("{");
+  for (int i = 0; i < TILES_PER_SET - 1; i++)
+    printf ("%c,", bitset & bitset_at (i) ? '1' : '0');
+  printf ("%c}\n", bitset & bitset_at (TILES_PER_SET - 1) ? '1' : '0');
+}
 
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 
@@ -189,6 +213,11 @@ void tileset_finalize (tileset_t tileset);
 const tile *restrict tileset_flush_tiles (tileset_t tileset);
 
 const tile *restrict tileset_flush_tiles_omp (tileset_t tileset);
+const tile *restrict tileset_get_tiles (tileset_t tileset);
+bitset *restrict tileset_get_sets (tileset_t tileset);
+const unsigned tileset_get_set_per_row (tileset_t tileset);
+const unsigned tileset_get_total_nb_sets (tileset_t tileset);
+unsigned char *restrict tileset_get_per_sets (tileset_t tileset);
 
 const unsigned tileset_nb_tiles (const tileset_t tileset);
 
