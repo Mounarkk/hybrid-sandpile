@@ -22,6 +22,7 @@ SANDPILE_DRAW_ALIAS (ssandPile);
 
 int num_threads;
 tileset_t *restrict tilesets = NULL;
+tile *restrict *restrict tile_map;
 // Debug facilities
 
 void ssandPile_config (char *param)
@@ -75,6 +76,21 @@ void ssandPile_init_omp_lazy (void)
   tilesets = malloc (sizeof (tileset_t *) * num_threads);
   for (unsigned i = 0; i < num_threads; i++)
     tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
+
+  unsigned total_nb_sets = tileset_get_total_nb_sets (TILESET);
+  tile_map               = malloc (total_nb_sets * sizeof (tile *));
+  unsigned set_per_row   = tileset_get_set_per_row (TILESET);
+
+  for (unsigned i = 0; i < tileset_get_total_nb_sets (TILESET); i++) {
+    unsigned tile_y = i / set_per_row;
+    unsigned set_x  = i - tile_y * set_per_row;
+    tile_map [i]    = malloc (TILES_PER_SET * sizeof (tile));
+
+    for (unsigned pos = 0; pos < TILES_PER_SET; pos++) {
+      tile_map [i][pos].tx = TILES_PER_SET_MUL (set_x) + pos;
+      tile_map [i][pos].ty = tile_y;
+    }
+  }
 }
 
 void ssandPile_init_omp_lazy_border (void)
@@ -466,24 +482,25 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     int change = 0;
 
     // const tile *restrict tiles   = tileset_flush_tiles_omp (*TILESET);
-    uint64_t *sets                  = tileset_get_sets (TILESET);
-    unsigned total_sets             = tileset_get_total_nb_sets (TILESET);
-    unsigned sets_per_row           = tileset_get_set_per_row (TILESET);
+    uint64_t *sets      = tileset_get_sets (TILESET);
+    unsigned total_sets = tileset_get_total_nb_sets (TILESET);
+    // unsigned sets_per_row           = tileset_get_set_per_row (TILESET);
     unsigned char *restrict per_set = tileset_get_per_sets (TILESET);
 
 #pragma omp parallel for schedule(static) shared(TABLE)
     for (unsigned i = 0; i < total_sets; i++) {
       tileset_t curr       = tilesets [omp_get_thread_num ()];
       unsigned char in_set = per_set [i];
-      unsigned tile_y      = i / sets_per_row;
-      unsigned set_x       = i - tile_y * sets_per_row;
+      // unsigned tile_y      = i / sets_per_row;
+      // unsigned set_x       = i - tile_y * sets_per_row;
       for (unsigned char k = 0; k < in_set; k++) {
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
 
         tile t;
-        t.tx = TILES_PER_SET_MUL (set_x) + pos;
-        t.ty = tile_y;
+        // t.tx = TILES_PER_SET_MUL (set_x) + pos;
+        // t.ty = tile_y;
+        t = tile_map [i][pos];
 
         unsigned long x, y;
         x = t.tx * TILE_W;
