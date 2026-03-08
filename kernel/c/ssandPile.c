@@ -466,10 +466,10 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     int change = 0;
 
     // const tile *restrict tiles   = tileset_flush_tiles_omp (*TILESET);
-    uint64_t *sets                  = tileset_get_sets (TILESET [0]);
-    unsigned total_sets             = tileset_get_total_nb_sets (TILESET [0]);
-    unsigned sets_per_row           = tileset_get_set_per_row (TILESET [0]);
-    unsigned char *restrict per_set = tileset_get_per_sets (TILESET [0]);
+    uint64_t *sets                  = tileset_get_sets (TILESET);
+    unsigned total_sets             = tileset_get_total_nb_sets (TILESET);
+    unsigned sets_per_row           = tileset_get_set_per_row (TILESET);
+    unsigned char *restrict per_set = tileset_get_per_sets (TILESET);
 
 #pragma omp parallel for schedule(static) shared(TABLE)
     for (unsigned i = 0; i < total_sets; i++) {
