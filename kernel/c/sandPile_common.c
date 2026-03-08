@@ -559,8 +559,6 @@ int tileset_merge (tileset_t tile, tileset_t *restrict others,
   for (unsigned i = 0; i < nb_others; i++) {
     for (unsigned j = 0; j < tile->total_nb_sets; j++)
       tile->sets [j] |= others [i]->sets [j];
-
-    tileset_mark_empty (others [i]);
   }
   int change = 0;
   for (unsigned i = 0; i < tile->total_nb_sets; i++) {

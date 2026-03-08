@@ -484,23 +484,27 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     // const tile *restrict tiles   = tileset_flush_tiles_omp (*TILESET);
     uint64_t *sets      = tileset_get_sets (TILESET);
     unsigned total_sets = tileset_get_total_nb_sets (TILESET);
-    // unsigned sets_per_row           = tileset_get_set_per_row (TILESET);
+    unsigned sets_per_row           = tileset_get_set_per_row (TILESET);
     unsigned char *restrict per_set = tileset_get_per_sets (TILESET);
 
-#pragma omp parallel for schedule(static) shared(TABLE)
+#pragma omp parallel shared(TABLE)
+{
+  
+    tileset_t curr       = tilesets [omp_get_thread_num ()];
+    tileset_mark_empty (curr);
+  #pragma omp for schedule(static) 
     for (unsigned i = 0; i < total_sets; i++) {
-      tileset_t curr       = tilesets [omp_get_thread_num ()];
       unsigned char in_set = per_set [i];
-      // unsigned tile_y      = i / sets_per_row;
-      // unsigned set_x       = i - tile_y * sets_per_row;
+      unsigned tile_y      = i / sets_per_row;
+      unsigned set_x       = i - tile_y * sets_per_row;
       for (unsigned char k = 0; k < in_set; k++) {
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
 
         tile t;
-        // t.tx = TILES_PER_SET_MUL (set_x) + pos;
-        // t.ty = tile_y;
-        t = tile_map [i][pos];
+        t.tx = TILES_PER_SET_MUL (set_x) + pos;
+        t.ty = tile_y;
+        //t = tile_map [i][pos];
 
         unsigned long x, y;
         x = t.tx * TILE_W;
@@ -533,12 +537,13 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
         tileset_mark_at (curr, mark_right, right);
       }
     }
-
+}
     swap_tables ();
     change = tileset_merge (TILESET, tilesets, num_threads);
     if (change == 0)
       break;
-  }
+  
+}
 
   if (it <= nb_iter)
     return it;
