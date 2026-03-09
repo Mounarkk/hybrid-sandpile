@@ -324,7 +324,7 @@ int qt_compute_iteration (qt_tile_fn tile_func)
  * Those were placed to evaluate how memory layout could affect performance
  */
 #define TILESET_MEM_PADDING 64 /* Padding between the allocated memory */
-#define TILESET_MEM_ALIGN 1     /* Try to align the values of the struct */
+#define TILESET_MEM_ALIGN 1    /* Try to align the values of the struct */
 
 #if TILESET_MEM_ALIGN == 1
 #define TILESET_MEM_ALIGN_TO(addr, align) (((addr) + align - 1) & ~(align - 1))
@@ -335,7 +335,8 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 #endif
 
 /* ===== Global variables ===== */
-tileset_t TILESET = NULL;
+tileset_t TILESET      = NULL;
+char *restrict PER_SET = NULL;
 
 /* ===== Tileset functions ===== */
 
@@ -353,8 +354,6 @@ tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   unsigned total_size = sizeof (struct _tileset);
   total_size += TILESET_MEM_PADDING;
   total_size += sizeof (bitset) * total_nb_sets + alignof (bitset);
-  total_size += TILESET_MEM_PADDING;
-  total_size += sizeof (char) * total_nb_sets + alignof (char);
 
   /*  Allocate as one big continuous chunk of memory */
   tileset_t tileset = calloc (1, total_size);
@@ -367,14 +366,10 @@ tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   tileset->nb_rows       = nb_rows;
   tileset->total_nb_sets = total_nb_sets;
 
-  int char_align   = TILESET_MEM_GET_ALIGN (char);
   int bitset_align = TILESET_MEM_GET_ALIGN (bitset);
 
   uintptr_t addr = ((uintptr_t)(tileset + 1)) + TILESET_MEM_PADDING;
   tileset->sets  = (bitset *)TILESET_MEM_ALIGN_TO (addr, bitset_align);
-
-  addr = ((uintptr_t)(tileset->sets + total_nb_sets)) + TILESET_MEM_PADDING;
-  tileset->per_set = (unsigned char *)TILESET_MEM_ALIGN_TO (addr, char_align);
 
   return tileset;
 }
@@ -394,7 +389,17 @@ void tileset_mark_at (tileset_t tileset, int change, const tile t)
   unsigned long index   = ty * tileset->sets_per_row + (BITSET_SIZE_DIV (tx));
   bitset bit            = bitset_at (BITSET_SIZE_MOD (tx));
 
-  tileset->per_set [index] += change * ((tileset->sets [index] & bit) == 0);
+  PER_SET [index] += change * ((tileset->sets [index] & bit) == 0);
+  tileset->sets [index] |= bit * change;
+}
+
+void tileset_mark_at_no_count (tileset_t tileset, int change, const tile t)
+{
+  unsigned long long tx = t.tx;
+  unsigned long long ty = t.ty;
+  unsigned long index   = ty * tileset->sets_per_row + (BITSET_SIZE_DIV (tx));
+  bitset bit            = bitset_at (BITSET_SIZE_MOD (tx));
+
   tileset->sets [index] |= bit * change;
 }
 
@@ -402,19 +407,17 @@ void tileset_mark_full (tileset_t tileset)
 {
   unsigned total = tileset->total_nb_sets;
   for (unsigned i = 0; i < total; i++) {
-    bitset set           = (~((bitset)0)) & tileset->trunc_mask;
-    tileset->sets [i]    = set;
-    tileset->per_set [i] = __builtin_popcountll (set);
+    bitset set        = (~((bitset)0)) & tileset->trunc_mask;
+    tileset->sets [i] = set;
+    PER_SET [i]       = __builtin_popcountll (set);
   }
 }
 
 void tileset_mark_empty (tileset_t tileset)
 {
   unsigned total = tileset->total_nb_sets;
-  for (unsigned i = 0; i < total; i++) {
-    tileset->sets [i]    = 0;
-    tileset->per_set [i] = 0;
-  }
+  for (unsigned i = 0; i < total; i++)
+    tileset->sets [i] = 0;
 }
 
 void tileset_trunc (tileset_t tileset)
@@ -438,8 +441,8 @@ int tileset_merge (tileset_t tile, tileset_t *restrict others,
   }
   int change = 0;
   for (unsigned i = 0; i < tile->total_nb_sets; i++) {
-    tile->per_set [i] = __builtin_popcountll (tile->sets [i]);
-    change |= (tile->per_set [i] != 0);
+    PER_SET [i] = __builtin_popcountll (tile->sets [i]);
+    change |= (PER_SET [i] != 0);
   }
 
   return change;
@@ -453,14 +456,13 @@ int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
   for (unsigned j = 0; j < tile->total_nb_sets; j++)
     for (unsigned i = 0; i < nb_others; i++) {
       tile->sets [j] |= others [i]->sets [j];
-      others [i]->sets [j]    = 0;
-      others [i]->per_set [j] = 0;
+      others [i]->sets [j] = 0;
     }
 
   int change = 0;
   for (unsigned i = 0; i < tile->total_nb_sets; i++) {
-    tile->per_set [i] = __builtin_popcountll (tile->sets [i]);
-    change |= tile->per_set [i];
+    PER_SET [i] = __builtin_popcountll (tile->sets [i]);
+    change |= PER_SET [i];
   }
 
   return change;

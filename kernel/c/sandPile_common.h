@@ -172,10 +172,10 @@ static inline void bitset_print (const bitset bitset)
  * BITSET BASED TILESET FOR LAZY EVALUATION
  * =========================================================================
  */
+
 struct _tileset
 {
   bitset *restrict sets;
-  unsigned char *restrict per_set;
 
   bitset trunc_mask;
   unsigned sets_per_row, tiles_per_row, nb_rows, total_nb_sets;
@@ -183,16 +183,19 @@ struct _tileset
 
 typedef struct _tileset *restrict tileset_t;
 
-typedef struct {
+typedef struct
+{
   unsigned long tx, ty;
 } tile;
 
 extern tileset_t TILESET;
+extern char *restrict PER_SET;
 
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 void tileset_finalize (tileset_t tileset);
 
 void tileset_mark_at (tileset_t tileset, const int change, const tile t);
+void tileset_mark_at_no_count (tileset_t tileset, int change, const tile t);
 
 void tileset_mark_full (tileset_t tileset);
 

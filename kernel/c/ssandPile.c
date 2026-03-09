@@ -54,6 +54,12 @@ void ssandPile_init_lazy (void)
   if (TILESET != NULL)
     return;
   TILESET = tileset_init (NB_TILES_X, NB_TILES_Y);
+
+  if (PER_SET != NULL)
+    return;
+  PER_SET = ezp_alloc (sizeof (char) * TILESET->total_nb_sets);
+  memset (PER_SET, 0, TILESET->total_nb_sets);
+
   tileset_mark_full (TILESET);
 }
 
@@ -86,6 +92,7 @@ void ssandPile_finalize (void)
 void ssandPile_finalize_lazy (void)
 {
   ssandPile_finalize ();
+  ezp_free (PER_SET, sizeof (char) * TILESET->total_nb_sets);
   tileset_finalize (TILESET);
 }
 
@@ -311,20 +318,19 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
   for (unsigned it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    bitset *restrict sets           = TILESET->sets;
-    unsigned char *restrict per_set = TILESET->per_set;
-    unsigned total_sets             = TILESET->total_nb_sets;
-    unsigned sets_per_row           = TILESET->sets_per_row;
+    bitset *restrict sets = TILESET->sets;
+    unsigned total_sets   = TILESET->total_nb_sets;
+    unsigned sets_per_row = TILESET->sets_per_row;
 
     for (unsigned i = 0; i < total_sets; i++) {
-      unsigned char in_set = per_set [i];
+      unsigned char in_set = PER_SET [i];
       unsigned tile_y      = i / sets_per_row;
       unsigned set_x       = i - tile_y * sets_per_row;
       for (unsigned char k = 0; k < in_set; k++) {
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
 
-	tile t;
+        tile t;
         t.tx = BITSET_SIZE_MUL (set_x) + pos;
         t.ty = tile_y;
 
@@ -332,10 +338,10 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
         x = t.tx * TILE_W;
         y = t.ty * TILE_H;
 
-        int y_0     = (y == 0);
-        int y_end   = (y + TILE_H == DIM);
-        int x_0     = (x == 0);
-        int x_end   = (x + TILE_W == DIM);
+        int y_0   = (y == 0);
+        int y_end = (y + TILE_H == DIM);
+        int x_0   = (x == 0);
+        int x_end = (x + TILE_W == DIM);
 
         int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                   TILE_H - y_end - y_0);
@@ -373,20 +379,19 @@ unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
   for (unsigned it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    bitset *restrict sets           = TILESET->sets;
-    unsigned char *restrict per_set = TILESET->per_set;
-    unsigned total_sets             = TILESET->total_nb_sets;
-    unsigned sets_per_row           = TILESET->sets_per_row;
+    bitset *restrict sets = TILESET->sets;
+    unsigned total_sets   = TILESET->total_nb_sets;
+    unsigned sets_per_row = TILESET->sets_per_row;
 
     for (unsigned i = 0; i < total_sets; i++) {
-      unsigned char in_set = per_set [i];
+      unsigned char in_set = PER_SET [i];
       unsigned tile_y      = i / sets_per_row;
       unsigned set_x       = i - tile_y * sets_per_row;
       for (unsigned char k = 0; k < in_set; k++) {
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
 
-	tile t;
+        tile t;
         t.tx = BITSET_SIZE_MUL (set_x) + pos;
         t.ty = tile_y;
 
@@ -394,10 +399,10 @@ unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
         x = t.tx * TILE_W;
         y = t.ty * TILE_H;
 
-        int y_0     = (y == 0);
-        int y_end   = (y + TILE_H == DIM);
-        int x_0     = (x == 0);
-        int x_end   = (x + TILE_W == DIM);
+        int y_0   = (y == 0);
+        int y_end = (y + TILE_H == DIM);
+        int x_0   = (x == 0);
+        int x_end = (x + TILE_W == DIM);
 
         int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                   TILE_H - y_end - y_0);
@@ -438,10 +443,9 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    bitset *restrict sets           = TILESET->sets;
-    unsigned char *restrict per_set = TILESET->per_set;
-    unsigned total_sets             = TILESET->total_nb_sets;
-    unsigned sets_per_row           = TILESET->sets_per_row;
+    bitset *restrict sets = TILESET->sets;
+    unsigned total_sets   = TILESET->total_nb_sets;
+    unsigned sets_per_row = TILESET->sets_per_row;
 
 #pragma omp parallel shared(TABLE)
     {
@@ -449,14 +453,14 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
       tileset_mark_empty (curr);
 #pragma omp for schedule(static)
       for (unsigned i = 0; i < total_sets; i++) {
-        unsigned char in_set = per_set [i];
+        unsigned char in_set = PER_SET [i];
         unsigned tile_y      = i / sets_per_row;
         unsigned set_x       = i - tile_y * sets_per_row;
         for (unsigned char k = 0; k < in_set; k++) {
           unsigned pos = __builtin_clzll (sets [i]);
           sets [i] -= bitset_at (pos);
 
-	  tile t;
+          tile t;
           t.tx = BITSET_SIZE_MUL (set_x) + pos;
           t.ty = tile_y;
 
@@ -464,10 +468,10 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
           x = t.tx * TILE_W;
           y = t.ty * TILE_H;
 
-          int y_0     = (y == 0);
-          int y_end   = (y + TILE_H == DIM);
-          int x_0     = (x == 0);
-          int x_end   = (x + TILE_W == DIM);
+          int y_0   = (y == 0);
+          int y_end = (y + TILE_H == DIM);
+          int x_0   = (x == 0);
+          int x_end = (x + TILE_W == DIM);
 
           int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                     TILE_H - y_end - y_0);
@@ -502,10 +506,9 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    bitset *sets                    = TILESET->sets;
-    unsigned total_sets             = TILESET->total_nb_sets;
-    unsigned sets_per_row           = TILESET->sets_per_row;
-    unsigned char *restrict per_set = TILESET->per_set;
+    bitset *sets          = TILESET->sets;
+    unsigned total_sets   = TILESET->total_nb_sets;
+    unsigned sets_per_row = TILESET->sets_per_row;
 
 #pragma omp parallel shared(TABLE)
     {
@@ -513,14 +516,14 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
       tileset_mark_empty (curr);
 #pragma omp for schedule(static)
       for (unsigned i = 0; i < total_sets; i++) {
-        unsigned char in_set = per_set [i];
+        unsigned char in_set = PER_SET [i];
         unsigned tile_y      = i / sets_per_row;
         unsigned set_x       = i - tile_y * sets_per_row;
         for (unsigned char k = 0; k < in_set; k++) {
           unsigned pos = __builtin_clzll (sets [i]);
           sets [i] -= bitset_at (pos);
 
-	  tile t;
+          tile t;
           t.tx = BITSET_SIZE_MUL (set_x) + pos;
           t.ty = tile_y;
 
@@ -528,7 +531,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           x = t.tx * TILE_W;
           y = t.ty * TILE_H;
 
-	  int y_0   = (y == 0);
+          int y_0   = (y == 0);
           int x_0   = (x == 0);
           int y_end = (y + TILE_H == DIM);
           int x_end = (x + TILE_W == DIM);
@@ -548,11 +551,11 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           int mark_left  = (loc_change >> 3) & 1;
           int mark_right = (loc_change >> 4) & 1;
 
-          tileset_mark_at (curr, mark_self, self);
-          tileset_mark_at (curr, mark_up, up);
-          tileset_mark_at (curr, mark_down, down);
-          tileset_mark_at (curr, mark_left, left);
-          tileset_mark_at (curr, mark_right, right);
+          tileset_mark_at_no_count (curr, mark_self, self);
+          tileset_mark_at_no_count (curr, mark_up, up);
+          tileset_mark_at_no_count (curr, mark_down, down);
+          tileset_mark_at_no_count (curr, mark_left, left);
+          tileset_mark_at_no_count (curr, mark_right, right);
         }
       }
     }
