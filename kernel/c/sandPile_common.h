@@ -176,9 +176,6 @@ static inline void bitset_print (const bitset bitset)
 struct _tileset
 {
   bitset *restrict sets;
-
-  bitset trunc_mask;
-  unsigned sets_per_row, tiles_per_row, nb_rows, total_nb_sets;
 };
 
 typedef struct _tileset *restrict tileset_t;
@@ -190,6 +187,8 @@ typedef struct
 
 extern tileset_t TILESET;
 extern char *restrict PER_SET;
+extern bitset TRUNC_MASK;
+extern unsigned SETS_PER_ROW, TILES_PER_ROW, NB_ROWS, TOTAL_NB_SETS;
 
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 void tileset_finalize (tileset_t tileset);
