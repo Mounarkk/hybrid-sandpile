@@ -324,26 +324,27 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
 
-        unsigned tx = BITSET_SIZE_MUL (set_x) + pos;
-        unsigned ty = tile_y;
-
-        int y_0   = (ty == 0);
-        int y_end = (ty == NB_TILES_Y - 1);
-        int x_0   = (tx == 0);
-        int x_end = (tx == NB_TILES_X - 1);
+	tile t;
+        t.tx = BITSET_SIZE_MUL (set_x) + pos;
+        t.ty = tile_y;
 
         unsigned long x, y;
-        x = tx * TILE_W;
-        y = ty * TILE_H;
+        x = t.tx * TILE_W;
+        y = t.ty * TILE_H;
+
+        int y_0     = (y == 0);
+        int y_end   = (y + TILE_H == DIM);
+        int x_0     = (x == 0);
+        int x_end   = (x + TILE_W == DIM);
 
         int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                   TILE_H - y_end - y_0);
 
-        tile self  = {tx, ty};
-        tile up    = {tx, ty - 1 + y_0};
-        tile down  = {tx, ty + 1 - y_end};
-        tile left  = {tx - 1 + x_0, ty};
-        tile right = {tx + 1 - x_end, ty};
+        tile self  = t;
+        tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
+        tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
+        tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
+        tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
         int mark = loc_change & 1;
 
@@ -385,25 +386,27 @@ unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
 
-        unsigned tx = BITSET_SIZE_MUL (set_x) + pos;
-        unsigned ty = tile_y;
-        int y_0     = (ty == 0);
-        int y_end   = (ty == NB_TILES_Y - 1);
-        int x_0     = (tx == 0);
-        int x_end   = (tx == NB_TILES_X - 1);
+	tile t;
+        t.tx = BITSET_SIZE_MUL (set_x) + pos;
+        t.ty = tile_y;
 
         unsigned long x, y;
-        x = tx * TILE_W;
-        y = ty * TILE_H;
+        x = t.tx * TILE_W;
+        y = t.ty * TILE_H;
+
+        int y_0     = (y == 0);
+        int y_end   = (y + TILE_H == DIM);
+        int x_0     = (x == 0);
+        int x_end   = (x + TILE_W == DIM);
 
         int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                   TILE_H - y_end - y_0);
 
-        tile self  = {tx, ty};
-        tile up    = {tx, ty - 1 + y_0};
-        tile down  = {tx, ty + 1 - y_end};
-        tile left  = {tx - 1 + x_0, ty};
-        tile right = {tx + 1 - x_end, ty};
+        tile self  = t;
+        tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
+        tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
+        tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
+        tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
         int mark_self  = loc_change & 1;
         int mark_up    = (loc_change >> 1) & 1;
@@ -453,25 +456,27 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
           unsigned pos = __builtin_clzll (sets [i]);
           sets [i] -= bitset_at (pos);
 
-          unsigned tx = BITSET_SIZE_MUL (set_x) + pos;
-          unsigned ty = tile_y;
-          int y_0     = (ty == 0);
-          int y_end   = (ty == NB_TILES_Y - 1);
-          int x_0     = (tx == 0);
-          int x_end   = (tx == NB_TILES_X - 1);
+	  tile t;
+          t.tx = BITSET_SIZE_MUL (set_x) + pos;
+          t.ty = tile_y;
 
           unsigned long x, y;
-          x = tx * TILE_W;
-          y = ty * TILE_H;
+          x = t.tx * TILE_W;
+          y = t.ty * TILE_H;
 
-          tile self  = {tx, ty};
-          tile up    = {tx, ty - 1 + y_0};
-          tile down  = {tx, ty + 1 - y_end};
-          tile left  = {tx - 1 + x_0, ty};
-          tile right = {tx + 1 - x_end, ty};
+          int y_0     = (y == 0);
+          int y_end   = (y + TILE_H == DIM);
+          int x_0     = (x == 0);
+          int x_end   = (x + TILE_W == DIM);
 
           int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                     TILE_H - y_end - y_0);
+
+          tile self  = t;
+          tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
+          tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
+          tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
+          tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
           tileset_mark_at (curr, loc_change, self);
           tileset_mark_at (curr, loc_change, up);
@@ -502,7 +507,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     unsigned sets_per_row           = TILESET->sets_per_row;
     unsigned char *restrict per_set = TILESET->per_set;
 
-#pragma omp parallel
+#pragma omp parallel shared(TABLE)
     {
       tileset_t curr = tilesets [omp_get_thread_num ()];
       tileset_mark_empty (curr);
@@ -515,25 +520,27 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           unsigned pos = __builtin_clzll (sets [i]);
           sets [i] -= bitset_at (pos);
 
-          unsigned tx = BITSET_SIZE_MUL (set_x) + pos;
-          unsigned ty = tile_y;
-          int y_0     = (ty == 0);
-          int y_end   = (ty == NB_TILES_Y - 1);
-          int x_0     = (tx == 0);
-          int x_end   = (tx == NB_TILES_X - 1);
+	  tile t;
+          t.tx = BITSET_SIZE_MUL (set_x) + pos;
+          t.ty = tile_y;
 
           unsigned long x, y;
-          x = tx * TILE_W;
-          y = ty * TILE_H;
+          x = t.tx * TILE_W;
+          y = t.ty * TILE_H;
 
-          tile self  = {tx, ty};
-          tile up    = {tx, ty - 1 + y_0};
-          tile down  = {tx, ty + 1 - y_end};
-          tile left  = {tx - 1 + x_0, ty};
-          tile right = {tx + 1 - x_end, ty};
+	  int y_0   = (y == 0);
+          int x_0   = (x == 0);
+          int y_end = (y + TILE_H == DIM);
+          int x_end = (x + TILE_W == DIM);
 
           int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                     TILE_H - y_end - y_0);
+
+          tile self  = t;
+          tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
+          tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
+          tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
+          tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
           int mark_self  = loc_change & 1;
           int mark_up    = (loc_change >> 1) & 1;

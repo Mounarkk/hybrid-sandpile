@@ -145,7 +145,7 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
  */
 
 #define BITSET_POW 6
-#define BITSET_SIZE (1 << 6)
+#define BITSET_SIZE 64
 
 #define BITSET_SIZE_MOD(x) ((x) & (BITSET_SIZE - 1))
 #define BITSET_SIZE_DIV(x) ((x) >> BITSET_POW)
@@ -183,10 +183,9 @@ struct _tileset
 
 typedef struct _tileset *restrict tileset_t;
 
-typedef unsigned long long tile [2];
-
-#define TILE_X(tile) (tile [0])
-#define TILE_Y(tile) (tile [1])
+typedef struct {
+  unsigned long tx, ty;
+} tile;
 
 extern tileset_t TILESET;
 
