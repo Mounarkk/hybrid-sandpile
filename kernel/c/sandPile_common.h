@@ -138,62 +138,23 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
   return lazy_qt.cur [qt_node_index (lazy_qt.depth - 1, ty, tx)] == QT_DIRTY;
 }
 
-// =========================================================================
-// TILESETS FOR LAZY EVALUATION
-// =========================================================================
-// USAGE
-//
-// Meant to be used with the two provided tilsets.
-// Both the bitsets must be initialized, they are identified by the vars
-//   current_tile_set, next_tile_set
-//
-// One of the bitset must be defined as the current, and the other as the next
-//
-// The current tileset must be initialized as a full tileset
-// The other must be initialized as an empty tileset empty one
-// Every mark must be made to the next tileset
-// At the end of an iteration, the sets should be switch
-//
-// =========================================================================
-// DESCRIPTION
-//
-// TilesPerRow is the number of tiles per row
-// TilesPerCol is the number of tiles per column
-// K is the number of elements one bitset can hold (64 here)
-//
-// We use arrays of 64 bits integers to act as the rows of tiles.
-// For each row, we allocate N bitset integers
-//
-// Then, one row of tile will need upper(K / TilesPerRow) bitsets
-// The total number of bitset allocated is :
-//   upper(K / TilesPerRow) * tilesPerCol
-//
-// Since the last bitset of a row may contain invalid indices
-// The truncate function should be called when switching and allocating
-//
-// The bitsets act more like an iterator over the tiles.
-// Getting the next tile is then akin to popping it.
+/*
+ * =========================================================================
+ * BITSET BASE TYPE
+ * =========================================================================
+ */
 
-/* ===== Size macro ===== */
-#define TILES_PER_SET 64
-/* Quick operations based on the value of TILES_PER_SET (power of 2) */
-#define TILES_PER_SET_MOD(x) ((x) & (TILES_PER_SET - 1))
-#define TILES_PER_SET_DIV(x) ((x) >> 6)
-#define TILES_PER_SET_MUL(x) ((x) << 6)
+#define BITSET_POW 6
+#define BITSET_SIZE (1 << 6)
 
-typedef struct _tileset *restrict tileset_t;
-
-typedef struct
-{
-  unsigned long tx, ty;
-} tile;
-
-extern tileset_t TILESET;
+#define BITSET_SIZE_MOD(x) ((x) & (BITSET_SIZE - 1))
+#define BITSET_SIZE_DIV(x) ((x) >> BITSET_POW)
+#define BITSET_SIZE_MUL(x) ((x) << BITSET_POW)
 typedef uint64_t bitset;
 
 static inline const bitset bitset_at (const unsigned at)
 {
-  unsigned index = TILES_PER_SET - at - 1;
+  unsigned index = BITSET_SIZE - at - 1;
   return ((bitset)1) << index;
 }
 
@@ -201,25 +162,36 @@ static inline const bitset bitset_at (const unsigned at)
 static inline void bitset_print (const bitset bitset)
 {
   printf ("{");
-  for (int i = 0; i < TILES_PER_SET - 1; i++)
+  for (int i = 0; i < BITSET_SIZE - 1; i++)
     printf ("%c,", bitset & bitset_at (i) ? '1' : '0');
-  printf ("%c}\n", bitset & bitset_at (TILES_PER_SET - 1) ? '1' : '0');
+  printf ("%c}\n", bitset & bitset_at (BITSET_SIZE - 1) ? '1' : '0');
 }
 
+/*
+ * =========================================================================
+ * BITSET BASED TILESET FOR LAZY EVALUATION
+ * =========================================================================
+ */
+struct _tileset
+{
+  bitset *restrict sets;
+  unsigned char *restrict per_set;
+
+  bitset trunc_mask;
+  unsigned sets_per_row, tiles_per_row, nb_rows, total_nb_sets;
+};
+
+typedef struct _tileset *restrict tileset_t;
+
+typedef unsigned long long tile [2];
+
+#define TILE_X(tile) (tile [0])
+#define TILE_Y(tile) (tile [1])
+
+extern tileset_t TILESET;
+
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
-
 void tileset_finalize (tileset_t tileset);
-
-const tile *restrict tileset_flush_tiles (tileset_t tileset);
-
-const tile *restrict tileset_flush_tiles_omp (tileset_t tileset);
-const tile *restrict tileset_get_tiles (tileset_t tileset);
-bitset *restrict tileset_get_sets (tileset_t tileset);
-const unsigned tileset_get_set_per_row (tileset_t tileset);
-const unsigned tileset_get_total_nb_sets (tileset_t tileset);
-unsigned char *restrict tileset_get_per_sets (tileset_t tileset);
-
-const unsigned tileset_nb_tiles (const tileset_t tileset);
 
 void tileset_mark_at (tileset_t tileset, const int change, const tile t);
 
