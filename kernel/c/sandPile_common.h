@@ -54,6 +54,10 @@ void sandPile_debug (int x, int y);
     hooks_draw_helper (param, kernel##_draw_4partout);                         \
   }
 
+// =========================================================================
+// PROJECT ADDITIONS
+// =========================================================================
+
 #define SANDPILE_STR(x) #x
 
 #ifdef __GNUC__
@@ -61,6 +65,18 @@ void sandPile_debug (int x, int y);
 #elif __clang__
 #define SANDPILE_UNROLL_LOOP(x) _Pragma (SANDPILE_STR (unroll x))
 #endif
+
+#define SANDPILE_BORDER_GET_SELF(x) ((x) & 1)
+#define SANDPILE_BORDER_GET_UP(x) (((x) >> 1) & 1)
+#define SANDPILE_BORDER_GET_DOWN(x) (((x) >> 2) & 1)
+#define SANDPILE_BORDER_GET_LEFT(x) (((x) >> 3) & 1)
+#define SANDPILE_BORDER_GET_RIGHT(x) (((x) >> 4) & 1)
+
+#define SANDPILE_BORDER_SET_SELF(x) ((x) & 1)
+#define SANDPILE_BORDER_SET_UP(x, set) ((x) << (1 * (set)))
+#define SANDPILE_BORDER_SET_DOWN(x, set) ((x) << (2 * (set)))
+#define SANDPILE_BORDER_SET_LEFT(x, set) ((x) << (3 * (set)))
+#define SANDPILE_BORDER_SET_RIGHT(x, set) ((x) << (4 * (set)))
 
 // =========================================================================
 // LAZY EVALUATION QUADTREE
@@ -180,6 +196,8 @@ struct _tileset
 
 typedef struct _tileset *restrict tileset_t;
 
+#define tileset_at(tileset, index) ((tileset)->sets[index])
+
 typedef struct
 {
   unsigned long tx, ty;
@@ -193,8 +211,7 @@ extern unsigned SETS_PER_ROW, TILES_PER_ROW, NB_ROWS, TOTAL_NB_SETS;
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 void tileset_finalize (tileset_t tileset);
 
-void tileset_mark_at (tileset_t tileset, const int change, const tile t);
-void tileset_mark_at_no_count (tileset_t tileset, int change, const tile t);
+void tileset_mark_at (tileset_t tileset, int change, const tile t);
 
 void tileset_mark_full (tileset_t tileset);
 
@@ -209,5 +226,7 @@ int tileset_merge (tileset_t tileset, tileset_t *restrict others,
 
 int tileset_merge_omp (tileset_t tileset, tileset_t *restrict others,
                        unsigned nb_others);
+
+int tileset_count (tileset_t tileset);
 
 #endif // SANDPILE_COMMON_H
