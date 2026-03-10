@@ -176,7 +176,6 @@ int ssandPile_do_tile_opt (int x, int y, int width, int height)
 
 int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
 {
-
   unsigned int offset = DIM - width;
   int diff            = 0;
 
@@ -198,12 +197,13 @@ int ssandPile_do_tile_opt_border (int x, int y, int width, int height)
       unsigned int d   = (*(in_cell + DIM) >> 2);
 
       unsigned int new  = a + b + c + d + old;
-      unsigned loc_diff = (new != old);
+      unsigned loc_diff = SANDPILE_BORDER_SET_SELF (new != old);
 
-      int up_flag    = loc_diff << (1 * is_border_up);
-      int down_flag  = loc_diff << (2 * is_border_down);
-      int left_flag  = loc_diff << (3 * is_border_left);
-      int right_flag = loc_diff << (4 * is_border_right);
+      int up_flag    = SANDPILE_BORDER_SET_UP (loc_diff, is_border_up);
+      int down_flag  = SANDPILE_BORDER_SET_DOWN (loc_diff, is_border_down);
+      int left_flag  = SANDPILE_BORDER_SET_LEFT (loc_diff, is_border_left);
+      int right_flag = SANDPILE_BORDER_SET_RIGHT (loc_diff, is_border_right);
+
       diff |= loc_diff | up_flag | down_flag | left_flag | right_flag;
 
       *out_cell = new;
@@ -312,18 +312,28 @@ unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
 
   return 0;
 }
+/*
+ * =============================================
+ * LAZY EVALUATION
+ * =============================================
+ */
 
 unsigned ssandPile_compute_lazy (unsigned nb_iter)
 {
   for (unsigned it = 1; it <= nb_iter; it++) {
-    int change = 0;
 
-    bitset *restrict sets = TILESET->sets;
+    bitset sets [TOTAL_NB_SETS];
+    for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
+      sets [i]                = tileset_at (TILESET, i);
+      tileset_at (TILESET, i) = 0;
+    }
 
     for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
       unsigned char in_set = PER_SET [i];
-      unsigned tile_y      = i / SETS_PER_ROW;
-      unsigned set_x       = i - tile_y * SETS_PER_ROW;
+
+      unsigned tile_y = i / SETS_PER_ROW;
+      unsigned set_x  = i - tile_y * SETS_PER_ROW;
+
       for (unsigned char k = 0; k < in_set; k++) {
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
@@ -343,6 +353,7 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
 
         int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                   TILE_H - y_end - y_0);
+        loc_change &= 1;
 
         tile self  = t;
         tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
@@ -350,23 +361,19 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
         tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
         tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
-        int mark = loc_change & 1;
-
-        tileset_mark_at (TILESET, mark, self);
-        tileset_mark_at (TILESET, mark, up);
-        tileset_mark_at (TILESET, mark, down);
-        tileset_mark_at (TILESET, mark, left);
-        tileset_mark_at (TILESET, mark, right);
+        tileset_mark_at (TILESET, loc_change, self);
+        tileset_mark_at (TILESET, loc_change, up);
+        tileset_mark_at (TILESET, loc_change, down);
+        tileset_mark_at (TILESET, loc_change, left);
+        tileset_mark_at (TILESET, loc_change, right);
       }
     }
-    swap_tables ();
-    change = tileset_merge (TILESET, tilesets, num_threads);
-    if (change == 0)
-      break;
 
-    if (it <= nb_iter)
+    swap_tables ();
+
+    int change = tileset_count (TILESET);
+    if (change == 0)
       return it;
-    return 0;
   }
 
   return 0;
@@ -375,14 +382,17 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
 unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
 {
   for (unsigned it = 1; it <= nb_iter; it++) {
-    int change = 0;
-
-    bitset *restrict sets = TILESET->sets;
+    bitset sets [TOTAL_NB_SETS];
+    for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
+      sets [i]                = tileset_at (TILESET, i);
+      tileset_at (TILESET, i) = 0;
+    }
 
     for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
       unsigned char in_set = PER_SET [i];
       unsigned tile_y      = i / SETS_PER_ROW;
       unsigned set_x       = i - tile_y * SETS_PER_ROW;
+
       for (unsigned char k = 0; k < in_set; k++) {
         unsigned pos = __builtin_clzll (sets [i]);
         sets [i] -= bitset_at (pos);
@@ -409,23 +419,23 @@ unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
         tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
         tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
-        int mark_self  = loc_change & 1;
-        int mark_up    = (loc_change >> 1) & 1;
-        int mark_down  = (loc_change >> 2) & 1;
-        int mark_left  = (loc_change >> 3) & 1;
-        int mark_right = (loc_change >> 4) & 1;
+        int mark_self  = SANDPILE_BORDER_GET_SELF (loc_change);
+        int mark_up    = SANDPILE_BORDER_GET_UP (loc_change);
+        int mark_down  = SANDPILE_BORDER_GET_DOWN (loc_change);
+        int mark_left  = SANDPILE_BORDER_GET_LEFT (loc_change);
+        int mark_right = SANDPILE_BORDER_GET_RIGHT (loc_change);
 
         tileset_mark_at (TILESET, mark_self, self);
         tileset_mark_at (TILESET, mark_up, up);
         tileset_mark_at (TILESET, mark_down, down);
         tileset_mark_at (TILESET, mark_left, left);
         tileset_mark_at (TILESET, mark_right, right);
-
-        change |= loc_change;
       }
     }
 
     swap_tables ();
+
+    int change = tileset_count (TILESET);
     if (change == 0)
       return it;
   }
@@ -439,7 +449,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    bitset *restrict sets = TILESET->sets;
+    bitset *restrict sets = &tileset_at(TILESET,0);
 
 #pragma omp parallel shared(TABLE)
     {
@@ -450,9 +460,10 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
         unsigned char in_set = PER_SET [i];
         unsigned tile_y      = i / SETS_PER_ROW;
         unsigned set_x       = i - tile_y * SETS_PER_ROW;
+
         for (unsigned char k = 0; k < in_set; k++) {
-          unsigned pos = __builtin_clzll (sets [i]);
-          sets [i] -= bitset_at (pos);
+          unsigned pos = __builtin_clzll (sets[i]);
+          sets[i] -= bitset_at (pos);
 
           tile t;
           t.tx = BITSET_SIZE_MUL (set_x) + pos;
@@ -486,6 +497,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
     }
 
     swap_tables ();
+
     change = tileset_merge (TILESET, tilesets, num_threads);
     if (change == 0)
       return it;
@@ -499,8 +511,8 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
   unsigned it;
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
-
-    bitset *sets = TILESET->sets;
+    
+    bitset *restrict sets = &tileset_at(TILESET, 0);
 
 #pragma omp parallel shared(TABLE)
     {
@@ -511,9 +523,11 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
         unsigned char in_set = PER_SET [i];
         unsigned tile_y      = i / SETS_PER_ROW;
         unsigned set_x       = i - tile_y * SETS_PER_ROW;
+        bitset set = sets[i];
+
         for (unsigned char k = 0; k < in_set; k++) {
-          unsigned pos = __builtin_clzll (sets [i]);
-          sets [i] -= bitset_at (pos);
+          unsigned pos = __builtin_clzll (set);
+          set -= bitset_at (pos);
 
           tile t;
           t.tx = BITSET_SIZE_MUL (set_x) + pos;
@@ -537,22 +551,25 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
           tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
-          int mark_self  = loc_change & 1;
-          int mark_up    = (loc_change >> 1) & 1;
-          int mark_down  = (loc_change >> 2) & 1;
-          int mark_left  = (loc_change >> 3) & 1;
-          int mark_right = (loc_change >> 4) & 1;
+          int mark_self  = SANDPILE_BORDER_GET_SELF (loc_change);
+          int mark_up    = SANDPILE_BORDER_GET_UP (loc_change);
+          int mark_down  = SANDPILE_BORDER_GET_DOWN (loc_change);
+          int mark_left  = SANDPILE_BORDER_GET_LEFT (loc_change);
+          int mark_right = SANDPILE_BORDER_GET_RIGHT (loc_change);
 
-          tileset_mark_at_no_count (curr, mark_self, self);
-          tileset_mark_at_no_count (curr, mark_up, up);
-          tileset_mark_at_no_count (curr, mark_down, down);
-          tileset_mark_at_no_count (curr, mark_left, left);
-          tileset_mark_at_no_count (curr, mark_right, right);
+          tileset_mark_at (curr, mark_self, self);
+          tileset_mark_at (curr, mark_up, up);
+          tileset_mark_at (curr, mark_down, down);
+          tileset_mark_at (curr, mark_left, left);
+          tileset_mark_at (curr, mark_right, right);
         }
+
+	sets[i] = 0;
       }
     }
 
     swap_tables ();
+
     change = tileset_merge (TILESET, tilesets, num_threads);
     if (change == 0)
       break;

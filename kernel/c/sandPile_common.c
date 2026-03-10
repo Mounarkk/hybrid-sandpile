@@ -327,7 +327,7 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 #define TILESET_MEM_ALIGN 1    /* Try to align the values of the struct */
 
 #if TILESET_MEM_ALIGN == 1
-#define TILESET_MEM_ALIGN_TO(addr, align) (((addr) + align - 1) & ~(align - 1))
+#define TILESET_MEM_ALIGN_TO(addr, align) ((((uintptr_t)(addr)) + align - 1) & ~(align - 1))
 #define TILESET_MEM_GET_ALIGN(type) (alignof (type))
 #else
 #define TILESET_MEM_ALIGN_TO(addr, align) (addr + 0 * align)
@@ -355,16 +355,15 @@ tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   TRUNC_MASK    = ~(mask * (tiles_left != 0));
   TILES_PER_ROW = tiles_per_row;
 
+  int bitset_align = TILESET_MEM_GET_ALIGN (bitset);
   unsigned total_size = sizeof (struct _tileset);
   total_size += TILESET_MEM_PADDING;
-  total_size += sizeof (bitset) * TOTAL_NB_SETS + alignof (bitset);
+  total_size += sizeof (bitset) * TOTAL_NB_SETS + bitset_align;
 
   /*  Allocate as one big continuous chunk of memory */
-  tileset_t tileset = calloc (1, total_size);
+  tileset_t tileset = ezp_alloc(total_size);
   if (tileset == NULL)
     return NULL;
-
-  int bitset_align = TILESET_MEM_GET_ALIGN (bitset);
 
   uintptr_t addr = ((uintptr_t)(tileset + 1)) + TILESET_MEM_PADDING;
   tileset->sets  = (bitset *)TILESET_MEM_ALIGN_TO (addr, bitset_align);
@@ -377,7 +376,12 @@ void tileset_finalize (tileset_t tileset)
   if (tileset == NULL)
     return;
 
-  free ((void *)tileset);
+  int bitset_align = TILESET_MEM_GET_ALIGN (bitset);
+  unsigned total_size = sizeof (struct _tileset);
+  total_size += TILESET_MEM_PADDING;
+  total_size += sizeof (bitset) * TOTAL_NB_SETS + bitset_align;
+
+  ezp_free((void *)tileset, total_size);
 }
 
 void tileset_mark_at (tileset_t tileset, int change, const tile t)
@@ -387,27 +391,16 @@ void tileset_mark_at (tileset_t tileset, int change, const tile t)
   unsigned long index   = ty * SETS_PER_ROW + (BITSET_SIZE_DIV (tx));
   bitset bit            = bitset_at (BITSET_SIZE_MOD (tx));
 
-  PER_SET [index] += change * ((tileset->sets [index] & bit) == 0);
-  tileset->sets [index] |= bit * change;
-}
-
-void tileset_mark_at_no_count (tileset_t tileset, int change, const tile t)
-{
-  unsigned long long tx = t.tx;
-  unsigned long long ty = t.ty;
-  unsigned long index   = ty * SETS_PER_ROW + (BITSET_SIZE_DIV (tx));
-  bitset bit            = bitset_at (BITSET_SIZE_MOD (tx));
-
-  tileset->sets [index] |= bit * change;
+  tileset_at (tileset, index) |= bit * change;
 }
 
 void tileset_mark_full (tileset_t tileset)
 {
   unsigned total = TOTAL_NB_SETS;
   for (unsigned i = 0; i < total; i++) {
-    bitset set        = (~((bitset)0)) & TRUNC_MASK;
-    tileset->sets [i] = set;
-    PER_SET [i]       = __builtin_popcountll (set);
+    bitset set              = (~((bitset)0)) & TRUNC_MASK;
+    tileset_at (tileset, i) = set;
+    PER_SET [i]             = __builtin_popcountll (set);
   }
 }
 
@@ -415,14 +408,14 @@ void tileset_mark_empty (tileset_t tileset)
 {
   unsigned total = TOTAL_NB_SETS;
   for (unsigned i = 0; i < total; i++)
-    tileset->sets [i] = 0;
+    tileset_at (tileset, i) = 0;
 }
 
 void tileset_trunc (tileset_t tileset)
 {
   unsigned per_row = SETS_PER_ROW;
   for (unsigned i = per_row - 1; i < TOTAL_NB_SETS; i += per_row)
-    tileset->sets [i] &= TRUNC_MASK;
+    tileset_at (tileset, i) &= TRUNC_MASK;
 }
 
 unsigned long tileset_get_total_tiles (tileset_t tileset)
@@ -433,17 +426,12 @@ unsigned long tileset_get_total_tiles (tileset_t tileset)
 int tileset_merge (tileset_t tile, tileset_t *restrict others,
                    unsigned nb_others)
 {
-  for (unsigned i = 0; i < nb_others; i++) {
-    for (unsigned j = 0; j < TOTAL_NB_SETS; j++)
-      tile->sets [j] |= others [i]->sets [j];
-  }
-  int change = 0;
-  for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
-    PER_SET [i] = __builtin_popcountll (tile->sets [i]);
-    change |= (PER_SET [i] != 0);
-  }
 
-  return change;
+  for (unsigned i = 0; i < nb_others; i++)
+    for (unsigned j = 0; j < TOTAL_NB_SETS; j++)    
+      tileset_at (tile, j) |= tileset_at (others [i], j);
+
+  return tileset_count (tile);
 }
 
 int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
@@ -452,16 +440,20 @@ int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
 
 #pragma omp parallel for schedule(static) shared(others)
   for (unsigned j = 0; j < TOTAL_NB_SETS; j++)
-    for (unsigned i = 0; i < nb_others; i++) {
-      tile->sets [j] |= others [i]->sets [j];
-      others [i]->sets [j] = 0;
-    }
+    for (unsigned i = 0; i < nb_others; i++)
+      tileset_at (tile, j) |= tileset_at (others [i], j);
 
-  int change = 0;
+  return tileset_count (tile);
+}
+
+inline int tileset_count (tileset_t tileset)
+{
+  int left = 0;
+
   for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
-    PER_SET [i] = __builtin_popcountll (tile->sets [i]);
-    change |= PER_SET [i];
+    PER_SET [i] = __builtin_popcountll (tileset_at (tileset, i));
+    left |= (PER_SET [i] != 0);
   }
 
-  return change;
+  return left;
 }
