@@ -1,11 +1,60 @@
 #include "kernel/ocl/common.cl"
 
-__kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out)
+__kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __global int *changed)
 {
-  int x = get_global_id (0);
-  int y = get_global_id (1);
+  // Shared memory for the tile + 1 pixel border to the right and left
+  __local unsigned tile [(TILE_W + 2) * (TILE_H + 2)];
+  __local int local_changed;
 
-  // TODO
+  int lx = get_local_id (0);
+  int ly = get_local_id (1);
+  int gx = get_global_id (0);
+  int gy = get_global_id (1);
+
+  // Initialize local flag
+  if (lx == 0 && ly == 0)
+    local_changed = 0;
+
+  // Cooperative loading of the tile into local memory
+  // Each thread loads its own cell + helps with the border
+  int row_size = TILE_W + 2;
+  
+  // (lx+1, ly+1) are the right local coordinates of the current cell
+  tile[(ly + 1) * row_size + (lx + 1)] = in[gy * DIM + gx];
+
+  // Borders (only threads on the edges of the workgroup load these)
+  if (lx == 0 && gx > 0) 
+      tile[(ly + 1) * row_size + 0] = in[gy * DIM + (gx - 1)];
+  if (lx == TILE_W - 1 && gx < DIM - 1) 
+      tile[(ly + 1) * row_size + (TILE_W + 1)] = in[gy * DIM + (gx + 1)];
+  if (ly == 0 && gy > 0) 
+      tile[0 * row_size + (lx + 1)] = in[(gy - 1) * DIM + gx];
+  if (ly == TILE_H - 1 && gy < DIM - 1) 
+      tile[(TILE_H + 1) * row_size + (lx + 1)] = in[(gy + 1) * DIM + gx];
+
+  barrier (CLK_LOCAL_MEM_FENCE);
+
+  // Compute stencil using local memory
+  if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
+    unsigned center = tile[(ly + 1) * row_size + (lx + 1)];
+    
+    unsigned res = (center % 4) +
+                   (tile[(ly + 0) * row_size + (lx + 1)] >> 2) + // up
+                   (tile[(ly + 2) * row_size + (lx + 1)] >> 2) + // down
+                   (tile[(ly + 1) * row_size + (lx + 0)] >> 2) + // left
+                   (tile[(ly + 1) * row_size + (lx + 2)] >> 2);  // right
+
+    out[gy * DIM + gx] = res;
+
+    // Local change detection
+    if (res != center)
+      atomic_or(&local_changed, 1);
+  }
+
+  // Single global atomic update per workgroup
+  barrier (CLK_LOCAL_MEM_FENCE);
+  if (lx == 0 && ly == 0 && local_changed != 0)
+    atomic_or (changed, 1);
 }
 
 #ifdef GL_BUFFER_SHARING

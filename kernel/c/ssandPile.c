@@ -449,7 +449,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    bitset *restrict sets = &tileset_at(TILESET,0);
+    bitset *restrict sets = &tileset_at (TILESET, 0);
 
 #pragma omp parallel shared(TABLE)
     {
@@ -462,8 +462,8 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
         unsigned set_x       = i - tile_y * SETS_PER_ROW;
 
         for (unsigned char k = 0; k < in_set; k++) {
-          unsigned pos = __builtin_clzll (sets[i]);
-          sets[i] -= bitset_at (pos);
+          unsigned pos = __builtin_clzll (sets [i]);
+          sets [i] -= bitset_at (pos);
 
           tile t;
           t.tx = BITSET_SIZE_MUL (set_x) + pos;
@@ -511,8 +511,8 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
   unsigned it;
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
-    
-    bitset *restrict sets = &tileset_at(TILESET, 0);
+
+    bitset *restrict sets = &tileset_at (TILESET, 0);
 
 #pragma omp parallel shared(TABLE)
     {
@@ -523,7 +523,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
         unsigned char in_set = PER_SET [i];
         unsigned tile_y      = i / SETS_PER_ROW;
         unsigned set_x       = i - tile_y * SETS_PER_ROW;
-        bitset set = sets[i];
+        bitset set           = sets [i];
 
         for (unsigned char k = 0; k < in_set; k++) {
           unsigned pos = __builtin_clzll (set);
@@ -564,7 +564,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           tileset_mark_at (curr, mark_right, right);
         }
 
-	sets[i] = 0;
+        sets [i] = 0;
       }
     }
 
@@ -582,6 +582,74 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
 #ifdef ENABLE_OPENCL
 // OpenCL basic
+
+static cl_mem ocl_changed_buffer = NULL;
+
+void ssandPile_init_ocl (void)
+{
+  // Allocate TABLE here
+  ssandPile_init ();
+
+  cl_int err;
+  ocl_changed_buffer =
+      clCreateBuffer (context, CL_MEM_READ_WRITE, sizeof (int), NULL, &err);
+  check (err, "Failed to create changed buffer");
+}
+
+unsigned ssandPile_compute_ocl (unsigned nb_iter)
+{
+  size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
+  size_t local [2]  = {TILE_W, TILE_H};
+  cl_int err;
+  int changed;
+
+  monitoring_start (easypap_gpu_lane (0));
+
+  for (unsigned it = 1; it <= nb_iter; it++) {
+    // Reset the changed flag on GPU
+    changed = 0;
+    err = clEnqueueWriteBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                                sizeof (int), &changed, 0, NULL, NULL);
+    check (err, "Failed to reset changed flag");
+
+    // Set kernel arguments
+    err = 0;
+    err |= clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                           &ocl_cur_buffer (0));
+    err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                           &ocl_next_buffer (0));
+    err |= clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
+                           &ocl_changed_buffer);
+    check (err, "Failed to set kernel arguments");
+
+    err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
+                                  NULL, global, local, 0, NULL, NULL);
+    check (err, "Failed to execute kernel");
+
+    // Swap buffers
+    {
+      cl_mem tmp          = ocl_cur_buffer (0);
+      ocl_cur_buffer (0)  = ocl_next_buffer (0);
+      ocl_next_buffer (0) = tmp;
+    }
+
+    // Read back the changed flag to detect stability
+    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                               sizeof (int), &changed, 0, NULL, NULL);
+    check (err, "Failed to read changed flag");
+
+    if (changed == 0) {
+      clFinish (ocl_queue (0));
+      monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+      return it;
+    }
+  }
+
+  clFinish (ocl_queue (0));
+  monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+
+  return 0;
+}
 
 void ssandPile_refresh_img_ocl (void)
 {
