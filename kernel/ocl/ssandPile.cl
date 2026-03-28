@@ -1,6 +1,6 @@
 #include "kernel/ocl/common.cl"
 
-__kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __global int *changed)
+__kernel void ssandPile_ocl_opt (__global unsigned *in, __global unsigned *out, __global int *changed)
 {
   // Shared memory for the tile + 1 pixel border to the right and left
   __local unsigned tile [(TILE_W + 2) * (TILE_H + 2)];
@@ -57,7 +57,7 @@ __kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __gl
     atomic_or (changed, 1);
 }
 
-__kernel void ssandPile_ocl_opt(__global unsigned *in,
+__kernel void ssandPile_ocl(__global unsigned *in,
                                 __global unsigned *out,
                                 __global int *changed)
 {
