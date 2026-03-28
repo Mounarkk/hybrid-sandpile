@@ -449,7 +449,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
 
-    bitset *restrict sets = &tileset_at(TILESET,0);
+    bitset *restrict sets = &tileset_at (TILESET, 0);
 
 #pragma omp parallel shared(TABLE)
     {
@@ -462,8 +462,8 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
         unsigned set_x       = i - tile_y * SETS_PER_ROW;
 
         for (unsigned char k = 0; k < in_set; k++) {
-          unsigned pos = __builtin_clzll (sets[i]);
-          sets[i] -= bitset_at (pos);
+          unsigned pos = __builtin_clzll (sets [i]);
+          sets [i] -= bitset_at (pos);
 
           tile t;
           t.tx = BITSET_SIZE_MUL (set_x) + pos;
@@ -511,8 +511,8 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
   unsigned it;
   for (it = 1; it <= nb_iter; it++) {
     int change = 0;
-    
-    bitset *restrict sets = &tileset_at(TILESET, 0);
+
+    bitset *restrict sets = &tileset_at (TILESET, 0);
 
 #pragma omp parallel shared(TABLE)
     {
@@ -523,7 +523,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
         unsigned char in_set = PER_SET [i];
         unsigned tile_y      = i / SETS_PER_ROW;
         unsigned set_x       = i - tile_y * SETS_PER_ROW;
-        bitset set = sets[i];
+        bitset set           = sets [i];
 
         for (unsigned char k = 0; k < in_set; k++) {
           unsigned pos = __builtin_clzll (set);
@@ -564,7 +564,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           tileset_mark_at (curr, mark_right, right);
         }
 
-	sets[i] = 0;
+        sets [i] = 0;
       }
     }
 
@@ -579,6 +579,68 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     return it;
   return 0;
 }
+#if __AVX2__ == 1
+
+#include <immintrin.h>
+
+void ssandpile_tile_check_opt_avx (void)
+{
+  easypap_vec_check (AVX_VEC_SIZE_INT, DIR_HORIZONTAL);
+}
+
+int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
+{
+  if ((width != TILE_W) | (height != TILE_H))
+    return ssandPile_do_tile_opt_border (x, y, width, height);
+
+  const unsigned int offset = AVX_VEC_SIZE_INT - (height - 1) * DIM;
+  int diff                  = 0;
+
+  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
+  TYPE *restrict out_cell = table_cell (TABLE, out, y, x);
+
+  /* Slide down in AVX_VEC_SIZE_INT blocks */
+  for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
+    __m256i up_vec     = *(__m256i *)(in_cell - DIM);
+    __m256i down_vec   = *(__m256i *)(in_cell + DIM);
+    __m256i center_vec = *(__m256i *)(in_cell);
+
+    for (int i = 0; i < height; i++) {
+      __m256i left_vec  = *(__m256i *)(in_cell - 1);
+      __m256i right_vec = *(__m256i *)(in_cell + 1);
+
+      __m256i res = _mm256_and_si256 (center_vec, _mm256_set1_epi32 (3));
+
+      /* add left for each vec */
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, -2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (down_vec, -2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_vec, -2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_vec, -2));
+
+      __m256 cast = _mm256_castsi256_ps (_mm256_cmpeq_epi32 (res, center_vec));
+      int changed = _mm256_movemask_ps (cast) != 0;
+
+      unsigned loc_diff = SANDPILE_BORDER_SET_SELF (changed);
+      diff |= loc_diff;
+
+      _mm256_store_si256 ((__m256i *)out_cell, res);
+
+      in_cell += DIM;
+      out_cell += DIM;
+
+      up_vec     = center_vec;
+      center_vec = down_vec;
+      down_vec   = *((__m256i *)in_cell + DIM);
+    }
+
+    in_cell += offset;
+    out_cell += offset;
+  }
+
+  return diff;
+}
+
+#endif
 
 #ifdef ENABLE_OPENCL
 // OpenCL basic
