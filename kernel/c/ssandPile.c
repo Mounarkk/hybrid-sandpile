@@ -749,4 +749,79 @@ void ssandPile_refresh_img_ocl_opt (void)
   ssandPile_refresh_img ();
 }
 
+void ssandPile_init_ocl_opt2 (void)
+{
+  ssandPile_init_ocl ();
+}
+
+unsigned ssandPile_compute_ocl_opt2 (unsigned nb_iter)
+{
+  size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
+  size_t local [2]  = {TILE_W, TILE_H};
+  cl_int err;
+
+  const unsigned BATCH_SIZE = 256;
+
+  const int zero = 0;
+
+  err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
+                        &ocl_changed_buffer);
+  check (err, "Failed to set kernel arg 2");
+
+  unsigned total_it = 0;
+  monitoring_start (easypap_gpu_lane (0));
+
+  for (unsigned it = 1; it <= nb_iter; it += BATCH_SIZE) {
+
+    err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
+                               sizeof (int), 0, sizeof (int), 0, NULL, NULL);
+    check (err, "Failed to fill changed buffer");
+
+    unsigned max_k =
+        (it + BATCH_SIZE - 1 <= nb_iter) ? BATCH_SIZE : (nb_iter - it + 1);
+
+    for (unsigned k = 0; k < max_k; k++) {
+      total_it++;
+      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                            &ocl_cur_buffer (0));
+      err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                             &ocl_next_buffer (0));
+      check (err, "Failed to set kernel args 0-1");
+
+      err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
+                                    NULL, global, local, 0, NULL, NULL);
+      check (err, "Kernel launch failed");
+
+      cl_mem tmp          = ocl_cur_buffer (0);
+      ocl_cur_buffer (0)  = ocl_next_buffer (0);
+      ocl_next_buffer (0) = tmp;
+    }
+
+    int changed;
+    cl_event read_evt;
+    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_FALSE, 0,
+                               sizeof (int), &changed, 0, NULL, &read_evt);
+    check (err, "Failed to enqueue changed read");
+
+    clFlush (ocl_queue (0));
+    clWaitForEvents (1, &read_evt);
+    clReleaseEvent (read_evt);
+
+    if (changed == 0) {
+      clFinish (ocl_queue (0));
+      monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+      return total_it;
+    }
+  }
+
+  clFinish (ocl_queue (0));
+  monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+  return 0;
+}
+
+void ssandPile_refresh_img_ocl_opt2 (void)
+{
+  ssandPile_refresh_img_ocl ();
+}
+
 #endif
