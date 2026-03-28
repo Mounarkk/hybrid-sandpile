@@ -16,7 +16,6 @@ easypapOptions = {
 # Force 1 thread as it's pure sequential benchmarking
 ompICV = {"OMP_NUM_THREADS": [1]}
 
-# Moyenne sur 3 executions
 nbruns = 10
 
 # Execution
