@@ -593,21 +593,22 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
   if ((width != TILE_W) | (height != TILE_H))
     return ssandPile_do_tile_opt_border (x, y, width, height);
 
-  const unsigned int offset = AVX_VEC_SIZE_INT - (height - 1) * DIM;
+  const unsigned int offset = DIM - width;
   int diff                  = 0;
 
-  TYPE *restrict in_cell  = table_cell (TABLE, in, y, x);
-  TYPE *restrict out_cell = table_cell (TABLE, out, y, x);
+  TYPE *in_cell  = table_cell (TABLE, in, y, x);
+  TYPE *out_cell = table_cell (TABLE, out, y, x);
 
-  /* Slide down in AVX_VEC_SIZE_INT blocks */
-  for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
-    __m256i up_vec     = *(__m256i *)(in_cell - DIM);
-    __m256i down_vec   = *(__m256i *)(in_cell + DIM);
-    __m256i center_vec = *(__m256i *)(in_cell);
+  int line_end = width >> 3;
 
-    for (int i = 0; i < height; i++) {
-      __m256i left_vec  = *(__m256i *)(in_cell - 1);
-      __m256i right_vec = *(__m256i *)(in_cell + 1);
+  for (int i = 0; i < height; i++) {
+    for (int j = 0; j < line_end; j++) {
+      __m256i up_vec     = _mm256_loadu_si256 ((__m256i *)(in_cell - DIM));
+      __m256i down_vec   = _mm256_loadu_si256 ((__m256i *)(in_cell + DIM));
+      __m256i center_vec = _mm256_loadu_si256 ((__m256i *)in_cell);
+
+      __m256i left_vec  = _mm256_loadu_si256 ((__m256i *)(in_cell - 1));
+      __m256i right_vec = _mm256_loadu_si256 ((__m256i *)(in_cell + 1));
 
       __m256i res = _mm256_and_si256 (center_vec, _mm256_set1_epi32 (3));
 
@@ -623,14 +624,9 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
       unsigned loc_diff = SANDPILE_BORDER_SET_SELF (changed);
       diff |= loc_diff;
 
-      _mm256_store_si256 ((__m256i *)out_cell, res);
-
-      in_cell += DIM;
-      out_cell += DIM;
-
-      up_vec     = center_vec;
-      center_vec = down_vec;
-      down_vec   = *((__m256i *)in_cell + DIM);
+      _mm256_storeu_si256 ((__m256i *)out_cell, res);
+      in_cell++;
+      out_cell++;
     }
 
     in_cell += offset;
