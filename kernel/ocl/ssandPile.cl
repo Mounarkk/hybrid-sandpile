@@ -85,17 +85,22 @@ __kernel void ssandPile_ocl_opt(__global unsigned *in,
   if (tid == 0)
     local_changed = 0;
 
-  // Cooperative tile loading — all threads share the same base now
-  for (int i = tid; i < tile_size; i += wg_size) {
-    int tx = i % row_size;
-    int ty = i / row_size;
+  // Cooperative loading of the tile into local memory
+  // Each thread loads its own cell + helps with the border
+  int row_size = TILE_W + 2;
+  
+  // (lx+1, ly+1) are the right local coordinates of the current cell
+  tile[(ly + 1) * row_size + (lx + 1)] = in[gy * DIM + gx];
 
-    // Clamp to [0, DIM-1] for boundary cells 
-    int gx_load = clamp(base_gx + tx - 1, 0, DIM - 1);
-    int gy_load = clamp(base_gy + ty - 1, 0, DIM - 1);
-
-    tile[i] = in[gy_load * DIM + gx_load];
-  }
+  // Borders (only threads on the edges of the workgroup load these)
+  if (lx == 0 && gx > 0) 
+      tile[(ly + 1) * row_size + 0] = in[gy * DIM + (gx - 1)];
+  if (lx == TILE_W - 1 && gx < DIM - 1) 
+      tile[(ly + 1) * row_size + (TILE_W + 1)] = in[gy * DIM + (gx + 1)];
+  if (ly == 0 && gy > 0) 
+      tile[0 * row_size + (lx + 1)] = in[(gy - 1) * DIM + gx];
+  if (ly == TILE_H - 1 && gy < DIM - 1) 
+      tile[(TILE_H + 1) * row_size + (lx + 1)] = in[(gy + 1) * DIM + gx];
 
   barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -120,12 +125,12 @@ __kernel void ssandPile_ocl_opt(__global unsigned *in,
   // Reuse tile memory (as int) to avoid an extra __local array
   __local int lflags[TILE_W * TILE_H];
   lflags[tid] = changed_flag;
-  //barrier(CLK_LOCAL_MEM_FENCE);
+  barrier(CLK_LOCAL_MEM_FENCE);
 
   for (int stride = wg_size >> 1; stride > 0; stride >>= 1) {
     if (tid < stride)
       lflags[tid] |= lflags[tid + stride];
-    //barrier(CLK_LOCAL_MEM_FENCE);
+    barrier(CLK_LOCAL_MEM_FENCE);
   }
 
   if (tid == 0 && lflags[0])
