@@ -663,7 +663,7 @@ unsigned ssandPile_compute_ocl_opt (unsigned nb_iter)
   cl_int err;
   int changed;
 
-  const unsigned BATCH_SIZE = 32;
+  const unsigned BATCH_SIZE = 128;
   unsigned total_it         = 0;
 
   monitoring_start (easypap_gpu_lane (0));
