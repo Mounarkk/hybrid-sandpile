@@ -1,6 +1,6 @@
 #include "kernel/ocl/common.cl"
 
-__kernel void ssandPile_ocl_opt (__global unsigned *in, __global unsigned *out, __global int *changed)
+__kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __global int *changed)
 {
   // Shared memory for the tile + 1 pixel border to the right and left
   __local unsigned tile [(TILE_W + 2) * (TILE_H + 2)];
@@ -57,7 +57,7 @@ __kernel void ssandPile_ocl_opt (__global unsigned *in, __global unsigned *out, 
     atomic_or (changed, 1);
 }
 
-__kernel void ssandPile_ocl(__global unsigned *in,
+__kernel void ssandPile_ocl_opt(__global unsigned *in,
                                 __global unsigned *out,
                                 __global int *changed)
 {
@@ -120,12 +120,12 @@ __kernel void ssandPile_ocl(__global unsigned *in,
   // Reuse tile memory (as int) to avoid an extra __local array
   __local int lflags[TILE_W * TILE_H];
   lflags[tid] = changed_flag;
-  barrier(CLK_LOCAL_MEM_FENCE);
+  //barrier(CLK_LOCAL_MEM_FENCE);
 
   for (int stride = wg_size >> 1; stride > 0; stride >>= 1) {
     if (tid < stride)
       lflags[tid] |= lflags[tid + stride];
-    barrier(CLK_LOCAL_MEM_FENCE);
+    //barrier(CLK_LOCAL_MEM_FENCE);
   }
 
   if (tid == 0 && lflags[0])
