@@ -684,7 +684,7 @@ unsigned ssandPile_compute_ocl_opt3 (unsigned nb_iter)
   size_t local [2]  = {TILE_W, TILE_H};
   cl_int err;
 
-  const unsigned BATCH_SIZE = 256;
+  const unsigned BATCH_SIZE = 50;
   const int zero            = 0;
 
   err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
