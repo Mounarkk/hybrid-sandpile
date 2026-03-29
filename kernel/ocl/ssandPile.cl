@@ -151,13 +151,13 @@ __kernel void ssandPile_ocl_opt2(__global unsigned *in,
   if (lx == 0) {
       tile[(ly + 1) * ROW_STRIDE + 0] = (gx > 0) ? in[gy * DIM + (gx - 1)] : 0;
   } else if (lx == TILE_W - 1) {
-      tile[(ly + 1) * ROW_STRIDE + lsize_x + 1] = (gx < DIM - 1) ? in[gy * DIM + (gx + 1)] : 0;
+      tile[(ly + 1) * ROW_STRIDE + TILE_W + 1] = (gx < DIM - 1) ? in[gy * DIM + (gx + 1)] : 0;
   }
 
   if (ly == 0) {
       tile[0 * ROW_STRIDE + (lx + 1)] = (gy > 0) ? in[(gy - 1) * DIM + gx] : 0;
   } else if (ly == TILE_H - 1) {
-      tile[(lsize_y + 1) * ROW_STRIDE + (lx + 1)] = (gy < DIM - 1) ? in[(gy + 1) * DIM + gx] : 0;
+      tile[(TILE_H + 1) * ROW_STRIDE + (lx + 1)] = (gy < DIM - 1) ? in[(gy + 1) * DIM + gx] : 0;
   }
 
   barrier(CLK_LOCAL_MEM_FENCE);   
@@ -177,6 +177,7 @@ __kernel void ssandPile_ocl_opt2(__global unsigned *in,
   }
 
   // Parallel reduction
+  __local int lflags[TILE_W * TILE_H];
   int tid = ly * TILE_W + lx;
   lflags[tid] = my_changed;
 
