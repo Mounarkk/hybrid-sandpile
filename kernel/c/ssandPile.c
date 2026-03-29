@@ -722,13 +722,10 @@ unsigned ssandPile_compute_ocl_opt3 (unsigned nb_iter)
     }
 
     int changed;
-    cl_event read_evt;
-    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_FALSE, 0,
-                               sizeof (int), &changed, 0, NULL, &read_evt);
-
-    clFlush (ocl_queue (0));
-    clWaitForEvents (1, &read_evt);
-    clReleaseEvent (read_evt);
+    // Read back the changed flag to detect stability
+    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                               sizeof (int), &changed, 0, NULL, NULL);
+    check (err, "Failed to read changed flag");
 
     if (changed == 0) {
       clFinish (ocl_queue (0));
