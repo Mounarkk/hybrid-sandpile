@@ -133,49 +133,45 @@ __kernel void ssandPile_ocl_opt(__global unsigned *in,
 }
 
 __kernel void ssandPile_ocl_opt2(__global unsigned *in,
-                                  __global unsigned *out,
-                                  __global int      *changed)
+                                 __global unsigned *out,
+                                 __global int      *changed)
 {
-  __local unsigned tile[(TILE_W + 2) * (TILE_H + 2)];
+  // Used for reduction
   __local int local_changed;
 
   int lx = get_local_id(0),  ly = get_local_id(1);
   int gx = get_global_id(0), gy = get_global_id(1);
-  int lsize_x = get_local_size(0), lsize_y = get_local_size(1);
-  int tid      = ly * lsize_x + lx;
-  int wg_size  = lsize_x * lsize_y;
-  int row_size  = TILE_W + 2;
-  int tile_size = (TILE_W + 2) * (TILE_H + 2);
-  int base_gx  = get_group_id(0) * TILE_W;
-  int base_gy  = get_group_id(1) * TILE_H;
 
-  if (tid == 0) local_changed = 0;
+  if (lx == 0 && ly == 0) local_changed = 0;
 
-  for (int i = tid; i < tile_size; i += wg_size) {
-    int tx = i % row_size;
-    int ty = i / row_size;
-    tile[i] = in[clamp(base_gy + ty - 1, 0, DIM - 1) * DIM
-                 + clamp(base_gx + tx - 1, 0, DIM - 1)];
-  }
-
+  // Barrier before computation just to sync the local_changed
   barrier(CLK_LOCAL_MEM_FENCE);   
 
-  if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
-    unsigned center = tile[(ly + 1) * row_size + (lx + 1)];
-    unsigned res = (center & 3)
-      + (tile[(ly + 0) * row_size + (lx + 1)] >> 2)   /* up    */
-      + (tile[(ly + 2) * row_size + (lx + 1)] >> 2)   /* down  */
-      + (tile[(ly + 1) * row_size + (lx + 0)] >> 2)   /* left  */
-      + (tile[(ly + 1) * row_size + (lx + 2)] >> 2);  /* right */
+  int my_changed = 0;
 
-    out[gy * DIM + gx] = res;
+  // What if we only rely on local cache ?
+  if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
+    int idx = gy * DIM + gx;
+    unsigned center = in[idx];
+
+    unsigned res = (center & 3)
+      + (in[idx - DIM] >> 2)   /* up    */
+      + (in[idx + DIM] >> 2)   /* down  */
+      + (in[idx - 1]   >> 2)   /* left  */
+      + (in[idx + 1]   >> 2);  /* right */
+
+    out[idx] = res;
 
     if (res != center)
-      atomic_or(&local_changed, 1);
+      my_changed = 1;
   }
 
-  barrier(CLK_LOCAL_MEM_FENCE);   
-  if (tid == 0 && local_changed)
+  if (my_changed)
+    atomic_or(&local_changed, 1);
+
+  barrier(CLK_LOCAL_MEM_FENCE); 
+
+  if (lx == 0 && ly == 0 && local_changed)
     atomic_or(changed, 1);       
 }
 

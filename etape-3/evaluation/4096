@@ -1,1 +1,1 @@
-./run -k ssandPile -s 4096 -g -i 1000 -ts 16 -v ocl  
+./run -k ssandPile -s 4096 -g -i 1000 -th 2 -tw 32 -v ocl_opt2
