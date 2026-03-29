@@ -1,141 +1,7 @@
 #include "kernel/ocl/common.cl"
 
-__kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __global int *changed)
-{
-  // Shared memory for the tile + 1 pixel border to the right and left
-  __local unsigned tile [(TILE_W + 2) * (TILE_H + 2)];
-  __local int local_changed;
-
-  int lx = get_local_id (0);
-  int ly = get_local_id (1);
-  int gx = get_global_id (0);
-  int gy = get_global_id (1);
-
-  // Initialize local flag
-  if (lx == 0 && ly == 0)
-    local_changed = 0;
-
-  // Cooperative loading of the tile into local memory
-  // Each thread loads its own cell + helps with the border
-  int row_size = TILE_W + 2;
-  
-  // (lx+1, ly+1) are the right local coordinates of the current cell
-  tile[(ly + 1) * row_size + (lx + 1)] = in[gy * DIM + gx];
-
-  // Borders (only threads on the edges of the workgroup load these)
-  if (lx == 0 && gx > 0) 
-      tile[(ly + 1) * row_size + 0] = in[gy * DIM + (gx - 1)];
-  if (lx == TILE_W - 1 && gx < DIM - 1) 
-      tile[(ly + 1) * row_size + (TILE_W + 1)] = in[gy * DIM + (gx + 1)];
-  if (ly == 0 && gy > 0) 
-      tile[0 * row_size + (lx + 1)] = in[(gy - 1) * DIM + gx];
-  if (ly == TILE_H - 1 && gy < DIM - 1) 
-      tile[(TILE_H + 1) * row_size + (lx + 1)] = in[(gy + 1) * DIM + gx];
-
-  barrier (CLK_LOCAL_MEM_FENCE);
-
-  // Compute stencil using local memory
-  if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
-    unsigned center = tile[(ly + 1) * row_size + (lx + 1)];
-    
-    unsigned res = (center % 4) +
-                   (tile[(ly + 0) * row_size + (lx + 1)] >> 2) + // up
-                   (tile[(ly + 2) * row_size + (lx + 1)] >> 2) + // down
-                   (tile[(ly + 1) * row_size + (lx + 0)] >> 2) + // left
-                   (tile[(ly + 1) * row_size + (lx + 2)] >> 2);  // right
-
-    out[gy * DIM + gx] = res;
-
-    // Local change detection
-    if (res != center)
-      atomic_or(&local_changed, 1);
-  }
-
-  // Single global atomic update per workgroup
-  barrier (CLK_LOCAL_MEM_FENCE);
-  if (lx == 0 && ly == 0 && local_changed != 0)
-    atomic_or (changed, 1);
-}
-
-__kernel void ssandPile_ocl_opt(__global unsigned *in,
-                                __global unsigned *out,
-                                __global int *changed)
-{
-  __local unsigned tile[(TILE_W + 2) * (TILE_H + 2)];
-  __local int local_changed;
-
-  int lx = get_local_id(0);
-  int ly = get_local_id(1);
-  int gx = get_global_id(0);
-  int gy = get_global_id(1);
-
-  int lsize_x = get_local_size(0);
-  int lsize_y = get_local_size(1);
-
-  int tid     = ly * lsize_x + lx;
-  int wg_size = lsize_x * lsize_y;
-
-  int row_size  = TILE_W + 2;
-  int tile_size = (TILE_W + 2) * (TILE_H + 2);
-
-  // Use workgroup origin as shared base for all threads
-  int base_gx = get_group_id(0) * TILE_W;
-  int base_gy = get_group_id(1) * TILE_H;
-
-  if (tid == 0)
-    local_changed = 0;
-
-  // Cooperative tile loading — all threads share the same base now
-  for (int i = tid; i < tile_size; i += wg_size) {
-    int tx = i % row_size;
-    int ty = i / row_size;
-
-    // Clamp to [0, DIM-1] for boundary cells 
-    int gx_load = clamp(base_gx + tx - 1, 0, DIM - 1);
-    int gy_load = clamp(base_gy + ty - 1, 0, DIM - 1);
-
-    tile[i] = in[gy_load * DIM + gx_load];
-  }
-
-  barrier(CLK_LOCAL_MEM_FENCE);
-
-  int changed_flag = 0;
-
-  if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
-    unsigned center = tile[(ly + 1) * row_size + (lx + 1)];
-
-    unsigned up    = tile[(ly + 0) * row_size + (lx + 1)] >> 2;
-    unsigned down  = tile[(ly + 2) * row_size + (lx + 1)] >> 2;
-    unsigned left  = tile[(ly + 1) * row_size + (lx + 0)] >> 2;
-    unsigned right = tile[(ly + 1) * row_size + (lx + 2)] >> 2;
-
-    unsigned res = (center & 3) + up + down + left + right;
-
-    out[gy * DIM + gx] = res;
-
-    changed_flag = (res != center);
-  }
-
-  // Parallel tree reduction instead of serial loop by thread 0
-  // Reuse tile memory (as int) to avoid an extra __local array
-  __local int lflags[TILE_W * TILE_H];
-  lflags[tid] = changed_flag;
-  barrier(CLK_LOCAL_MEM_FENCE);
-
-  for (int stride = wg_size >> 1; stride > 0; stride >>= 1) {
-    if (tid < stride)
-      lflags[tid] |= lflags[tid + stride];
-    barrier(CLK_LOCAL_MEM_FENCE);
-  }
-
-  if (tid == 0 && lflags[0])
-    atomic_or(changed, 1);
-}
-
 __attribute__((reqd_work_group_size(TILE_W, TILE_H, 1)))
-__kernel void ssandPile_ocl_opt2(__global unsigned *in,
-                                 __global unsigned *out,
-                                 __global int      *changed)
+__kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __global int *changed)
 {
   // We try to eliminate bank conflicts
   #define ROW_STRIDE (TILE_W + 1)
@@ -192,6 +58,104 @@ __kernel void ssandPile_ocl_opt2(__global unsigned *in,
 
   if (tid == 0 && lflags[0])
       atomic_or(changed, 1);       
+}
+
+__kernel void ssandPile_ocl_opt3(__global unsigned *in,
+                                 __global unsigned *out,
+                                 __global int      *changed)
+{
+    // Compute 2 iterations per kernel invocation
+    #define MARGIN 2
+    
+    // Size of the area needed to compute to get TILE_W x TILE_H actual output
+    #define TRUE_W (TILE_W + 4)
+    #define IN_W (TRUE_W | 1) // Padding bit to make row stride strictly odd for bank conflicts
+    #define IN_H (TILE_H + 4)
+    
+    __local unsigned tile0[IN_H * IN_W];
+    __local unsigned tile1[IN_H * IN_W];
+    
+    int lx = get_local_id(0), ly = get_local_id(1);
+    int tid = ly * TILE_W + lx;
+    int wg_size = TILE_W * TILE_H;
+    int gx = get_global_id(0), gy = get_global_id(1);
+    
+    int base_gx = get_group_id(0) * TILE_W;
+    int base_gy = get_group_id(1) * TILE_H;
+    
+    int total_cells = IN_H * IN_W;
+
+    // Fetch the (TILE_W+4)x(TILE_H+4) block for multiple iterations
+    for (int i = tid; i < total_cells; i += wg_size) {
+        int tx = i % IN_W;
+        int ty = i / IN_W;
+        
+        // Skip the padding column 
+        if (tx < TRUE_W) {
+             int g_x = base_gx - MARGIN + tx;
+             int g_y = base_gy - MARGIN + ty;
+             
+             // Clamp to global grid borders 
+             if (g_x < 0) g_x = 0; else if (g_x >= DIM) g_x = DIM - 1;
+             if (g_y < 0) g_y = 0; else if (g_y >= DIM) g_y = DIM - 1;
+             
+             tile0[i] = in[g_y * DIM + g_x];
+        }
+    }
+    
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    // Compute iteration 1, so the valid output area shrinks by 1 cell on all sides.
+    for (int i = tid; i < total_cells; i += wg_size) {
+        int tx = i % IN_W;
+        int ty = i / IN_W;
+        
+        if (tx >= 1 && tx < TRUE_W - 1 && ty >= 1 && ty < IN_H - 1) {
+            unsigned center = tile0[i];
+            unsigned res = (center & 3)
+                + (tile0[i - IN_W] >> 2) // up
+                + (tile0[i + IN_W] >> 2) // down
+                + (tile0[i - 1] >> 2)    // left
+                + (tile0[i + 1] >> 2);   // right
+            tile1[i] = res;
+        }
+    }
+    
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    // Compute iteration 2 and write out to global memory
+    int my_changed = 0;
+    
+    int out_tx = lx + MARGIN; 
+    int out_ty = ly + MARGIN;
+    int out_i = out_ty * IN_W + out_tx;
+    
+    unsigned center = tile1[out_i];
+    unsigned res = (center & 3)
+        + (tile1[out_i - IN_W] >> 2)
+        + (tile1[out_i + IN_W] >> 2)
+        + (tile1[out_i - 1] >> 2)
+        + (tile1[out_i + 1] >> 2);
+        
+    if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
+        out[gy * DIM + gx] = res;
+        my_changed = (res != center);
+    }
+    
+    // Reduction
+    __local int lflags[TILE_W * TILE_H];
+    lflags[tid] = my_changed;
+    
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    for (int s = wg_size >> 1; s > 0; s >>= 1) {
+        if (tid < s) lflags[tid] |= lflags[tid + s];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    
+    if (tid == 0 && lflags[0]) {
+        atomic_or(changed, 1);
+    }
 }
 
 #ifdef GL_BUFFER_SHARING
