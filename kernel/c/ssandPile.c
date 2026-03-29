@@ -590,43 +590,63 @@ void ssandpile_tile_check_opt_avx (void)
 
 int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
 {
-  if ((width != TILE_W) | (height != TILE_H))
+  if (width != TILE_W)
     return ssandPile_do_tile_opt_border (x, y, width, height);
 
-  const unsigned int offset = DIM - width;
-  int diff                  = 0;
+  const int offset = -(height * DIM) + AVX_VEC_SIZE_INT;
+  int diff         = 0;
 
   TYPE *in_cell  = table_cell (TABLE, in, y, x);
   TYPE *out_cell = table_cell (TABLE, out, y, x);
 
-  int line_end = width >> 3;
+  const __m256i m256_3 = _mm256_set1_epi32 (3);
 
-  for (int i = 0; i < height; i++) {
-    for (int j = 0; j < line_end; j++) {
-      __m256i up_vec     = _mm256_loadu_si256 ((__m256i *)(in_cell - DIM));
-      __m256i down_vec   = _mm256_loadu_si256 ((__m256i *)(in_cell + DIM));
-      __m256i center_vec = _mm256_loadu_si256 ((__m256i *)in_cell);
+  for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
+    __m256i up_vec     = _mm256_loadu_si256 ((__m256i *)(in_cell - DIM));
+    __m256i center_vec = _mm256_loadu_si256 ((__m256i *)(in_cell));
+    __m256i down_vec;
 
+    int is_border_left  = (j == 0);
+    int is_border_right = (j == (width - AVX_VEC_SIZE_INT));
+
+    for (int i = 0; i < height; i++) {
+      int is_border_up   = (i == 0);
+      int is_border_down = (i == (height - 1));
+
+      down_vec          = _mm256_loadu_si256 ((__m256i *)(in_cell + DIM));
       __m256i left_vec  = _mm256_loadu_si256 ((__m256i *)(in_cell - 1));
       __m256i right_vec = _mm256_loadu_si256 ((__m256i *)(in_cell + 1));
 
-      __m256i res = _mm256_and_si256 (center_vec, _mm256_set1_epi32 (3));
+      /* cell & 3 */
+      __m256i res = _mm256_and_si256 (center_vec, m256_3);
 
       /* add left for each vec */
-      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, -2));
-      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (down_vec, -2));
-      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_vec, -2));
-      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_vec, -2));
-
-      __m256 cast = _mm256_castsi256_ps (_mm256_cmpeq_epi32 (res, center_vec));
-      int changed = _mm256_movemask_ps (cast) != 0;
-
-      unsigned loc_diff = SANDPILE_BORDER_SET_SELF (changed);
-      diff |= loc_diff;
-
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, 2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (down_vec, 2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_vec, 2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_vec, 2));
       _mm256_storeu_si256 ((__m256i *)out_cell, res);
-      in_cell++;
-      out_cell++;
+
+      __m256 cast              = (__m256)_mm256_cmpeq_epi32 (res, center_vec);
+      unsigned char change_vec = ~(unsigned char)_mm256_movemask_ps (cast);
+
+      char change_left  = change_vec & 1;
+      char change_right = (change_vec >> (AVX_VEC_SIZE_INT - 1)) & 1;
+
+      int self_flag = SANDPILE_BORDER_SET_SELF (change_vec != 0);
+      int up_flag   = SANDPILE_BORDER_SET_UP (self_flag, is_border_up);
+      int down_flag = SANDPILE_BORDER_SET_DOWN (self_flag, is_border_down);
+      int left_flag = SANDPILE_BORDER_SET_LEFT (change_left, is_border_left);
+      int right_flag =
+          SANDPILE_BORDER_SET_RIGHT (change_right, is_border_right);
+
+      diff |= self_flag | up_flag | down_flag | left_flag | right_flag;
+
+      in_cell += DIM;
+      out_cell += DIM;
+
+      up_vec     = center_vec;
+      center_vec = down_vec;
     }
 
     in_cell += offset;
