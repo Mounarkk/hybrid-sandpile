@@ -84,12 +84,16 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
     int base_gy = get_group_id(1) * TILE_H;
     
     int total_cells = IN_H * IN_W;
+    int wg_mod = wg_size % IN_W;
+    int wg_div = wg_size / IN_W;
+    
+    __local int local_changed;
+    if (tid == 0) local_changed = 0;
 
     // Fetch the (TILE_W+4)x(TILE_H+4) block for multiple iterations
+    int tx = tid % IN_W;
+    int ty = tid / IN_W;
     for (int i = tid; i < total_cells; i += wg_size) {
-        int tx = i % IN_W;
-        int ty = i / IN_W;
-        
         // Skip the padding column 
         if (tx < TRUE_W) {
              int g_x = base_gx - MARGIN + tx;
@@ -101,15 +105,18 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
              
              tile0[i] = in[g_y * DIM + g_x];
         }
+        
+        tx += wg_mod;
+        ty += wg_div;
+        if (tx >= IN_W) { tx -= IN_W; ty++; }
     }
     
     barrier(CLK_LOCAL_MEM_FENCE);
     
     // Compute iteration 1. Valid output area shrinks by 1 cell on all sides.
+    tx = tid % IN_W;
+    ty = tid / IN_W;
     for (int i = tid; i < total_cells; i += wg_size) {
-        int tx = i % IN_W;
-        int ty = i / IN_W;
-        
         if (tx >= 1 && tx < TRUE_W - 1 && ty >= 1 && ty < IN_H - 1) {
             unsigned center = tile0[i];
             tile1[i] = (center & 3)
@@ -118,15 +125,18 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
                 + (tile0[i - 1] >> 2)    // left
                 + (tile0[i + 1] >> 2);   // right
         }
+        
+        tx += wg_mod;
+        ty += wg_div;
+        if (tx >= IN_W) { tx -= IN_W; ty++; }
     }
     
     barrier(CLK_LOCAL_MEM_FENCE);
     
     // Compute iteration 2. Valid area shrinks by 1 more on all sides.
+    tx = tid % IN_W;
+    ty = tid / IN_W;
     for (int i = tid; i < total_cells; i += wg_size) {
-        int tx = i % IN_W;
-        int ty = i / IN_W;
-        
         if (tx >= 2 && tx < TRUE_W - 2 && ty >= 2 && ty < IN_H - 2) {
             unsigned center = tile1[i];
             tile0[i] = (center & 3)
@@ -135,15 +145,18 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
                 + (tile1[i - 1] >> 2)    // left
                 + (tile1[i + 1] >> 2);   // right
         }
+        
+        tx += wg_mod;
+        ty += wg_div;
+        if (tx >= IN_W) { tx -= IN_W; ty++; }
     }
     
     barrier(CLK_LOCAL_MEM_FENCE);
     
     // Compute iteration 3. Shrinks by 1 more.
+    tx = tid % IN_W;
+    ty = tid / IN_W;
     for (int i = tid; i < total_cells; i += wg_size) {
-        int tx = i % IN_W;
-        int ty = i / IN_W;
-        
         if (tx >= 3 && tx < TRUE_W - 3 && ty >= 3 && ty < IN_H - 3) {
             unsigned center = tile0[i];
             tile1[i] = (center & 3)
@@ -152,6 +165,10 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
                 + (tile0[i - 1] >> 2)    // left
                 + (tile0[i + 1] >> 2);   // right
         }
+        
+        tx += wg_mod;
+        ty += wg_div;
+        if (tx >= IN_W) { tx -= IN_W; ty++; }
     }
     
     barrier(CLK_LOCAL_MEM_FENCE);
@@ -172,21 +189,14 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
         
     if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
         out[gy * DIM + gx] = res;
-        my_changed = (res != center);
+        if (res != center)
+            atomic_or(&local_changed, 1);
     }
     
-    // Reduction
-    __local int lflags[TILE_W * TILE_H];
-    lflags[tid] = my_changed;
-    
+    // Single barrier sync before the one global atomic
     barrier(CLK_LOCAL_MEM_FENCE);
     
-    for (int s = wg_size >> 1; s > 0; s >>= 1) {
-        if (tid < s) lflags[tid] |= lflags[tid + s];
-        barrier(CLK_LOCAL_MEM_FENCE);
-    }
-    
-    if (tid == 0 && lflags[0]) {
+    if (tid == 0 && local_changed) {
         atomic_or(changed, 1);
     }
 }
