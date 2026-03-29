@@ -694,19 +694,19 @@ unsigned ssandPile_compute_ocl_opt3 (unsigned nb_iter)
   unsigned total_it = 0;
   monitoring_start (easypap_gpu_lane (0));
 
-  for (unsigned it = 1; it <= nb_iter; it += BATCH_SIZE * 2) {
+  for (unsigned it = 1; it <= nb_iter; it += BATCH_SIZE * 4) {
     err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
                                sizeof (int), 0, sizeof (int), 0, NULL, NULL);
 
     unsigned remaining = nb_iter - it + 1;
-    unsigned max_k     = (remaining + 1) / 2;
+    unsigned max_k     = (remaining + 3) / 4;
     if (max_k > BATCH_SIZE)
       max_k = BATCH_SIZE;
     if (max_k == 0)
       break;
 
     for (unsigned k = 0; k < max_k; k++) {
-      total_it += 2; // Kernel does 2 iterations internally
+      total_it += 4; // Kernel does 4 iterations internally
       err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
                             &ocl_cur_buffer (0));
       err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
@@ -715,7 +715,7 @@ unsigned ssandPile_compute_ocl_opt3 (unsigned nb_iter)
       err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
                                     NULL, global, local, 0, NULL, NULL);
 
-      // We swap only after the two internal GPU iterations
+      // We swap only after the four internal GPU iterations
       cl_mem tmp          = ocl_cur_buffer (0);
       ocl_cur_buffer (0)  = ocl_next_buffer (0);
       ocl_next_buffer (0) = tmp;

@@ -64,13 +64,13 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
                                  __global unsigned *out,
                                  __global int      *changed)
 {
-    // Compute 2 iterations per kernel invocation
-    #define MARGIN 2
+    // Compute 4 iterations per kernel invocation
+    #define MARGIN 4
     
     // Size of the area needed to compute to get TILE_W x TILE_H actual output
-    #define TRUE_W (TILE_W + 4)
+    #define TRUE_W (TILE_W + 8)
     #define IN_W (TRUE_W | 1) // Padding bit to make row stride strictly odd for bank conflicts
-    #define IN_H (TILE_H + 4)
+    #define IN_H (TILE_H + 8)
     
     __local unsigned tile0[IN_H * IN_W];
     __local unsigned tile1[IN_H * IN_W];
@@ -105,25 +105,58 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
     
     barrier(CLK_LOCAL_MEM_FENCE);
     
-    // Compute iteration 1, so the valid output area shrinks by 1 cell on all sides.
+    // Compute iteration 1. Valid output area shrinks by 1 cell on all sides.
     for (int i = tid; i < total_cells; i += wg_size) {
         int tx = i % IN_W;
         int ty = i / IN_W;
         
         if (tx >= 1 && tx < TRUE_W - 1 && ty >= 1 && ty < IN_H - 1) {
             unsigned center = tile0[i];
-            unsigned res = (center & 3)
+            tile1[i] = (center & 3)
                 + (tile0[i - IN_W] >> 2) // up
                 + (tile0[i + IN_W] >> 2) // down
                 + (tile0[i - 1] >> 2)    // left
                 + (tile0[i + 1] >> 2);   // right
-            tile1[i] = res;
         }
     }
     
     barrier(CLK_LOCAL_MEM_FENCE);
     
-    // Compute iteration 2 and write out to global memory
+    // Compute iteration 2. Valid area shrinks by 1 more on all sides.
+    for (int i = tid; i < total_cells; i += wg_size) {
+        int tx = i % IN_W;
+        int ty = i / IN_W;
+        
+        if (tx >= 2 && tx < TRUE_W - 2 && ty >= 2 && ty < IN_H - 2) {
+            unsigned center = tile1[i];
+            tile0[i] = (center & 3)
+                + (tile1[i - IN_W] >> 2) // up
+                + (tile1[i + IN_W] >> 2) // down
+                + (tile1[i - 1] >> 2)    // left
+                + (tile1[i + 1] >> 2);   // right
+        }
+    }
+    
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    // Compute iteration 3. Shrinks by 1 more.
+    for (int i = tid; i < total_cells; i += wg_size) {
+        int tx = i % IN_W;
+        int ty = i / IN_W;
+        
+        if (tx >= 3 && tx < TRUE_W - 3 && ty >= 3 && ty < IN_H - 3) {
+            unsigned center = tile0[i];
+            tile1[i] = (center & 3)
+                + (tile0[i - IN_W] >> 2) // up
+                + (tile0[i + IN_W] >> 2) // down
+                + (tile0[i - 1] >> 2)    // left
+                + (tile0[i + 1] >> 2);   // right
+        }
+    }
+    
+    barrier(CLK_LOCAL_MEM_FENCE);
+    
+    // Compute iteration 4 and write out to global memory (shrinks by 1, total MARGIN=4)
     int my_changed = 0;
     
     int out_tx = lx + MARGIN; 
