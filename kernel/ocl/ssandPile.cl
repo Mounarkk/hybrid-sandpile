@@ -132,47 +132,65 @@ __kernel void ssandPile_ocl_opt(__global unsigned *in,
     atomic_or(changed, 1);
 }
 
+__attribute__((reqd_work_group_size(TILE_W, TILE_H, 1)))
 __kernel void ssandPile_ocl_opt2(__global unsigned *in,
                                  __global unsigned *out,
                                  __global int      *changed)
 {
-  // Used for reduction
-  __local int local_changed;
+  // We try to eliminate bank conflicts
+  #define ROW_STRIDE (TILE_W + 1)
+  
+  __local unsigned tile[(TILE_H + 2) * ROW_STRIDE];
 
   int lx = get_local_id(0),  ly = get_local_id(1);
   int gx = get_global_id(0), gy = get_global_id(1);
 
-  if (lx == 0 && ly == 0) local_changed = 0;
+  tile[(ly + 1) * ROW_STRIDE + (lx + 1)] = in[gy * DIM + gx];
 
-  // Barrier before computation just to sync the local_changed
+  // Load halo
+  if (lx == 0) {
+      tile[(ly + 1) * ROW_STRIDE + 0] = (gx > 0) ? in[gy * DIM + (gx - 1)] : 0;
+  } else if (lx == TILE_W - 1) {
+      tile[(ly + 1) * ROW_STRIDE + lsize_x + 1] = (gx < DIM - 1) ? in[gy * DIM + (gx + 1)] : 0;
+  }
+
+  if (ly == 0) {
+      tile[0 * ROW_STRIDE + (lx + 1)] = (gy > 0) ? in[(gy - 1) * DIM + gx] : 0;
+  } else if (ly == TILE_H - 1) {
+      tile[(lsize_y + 1) * ROW_STRIDE + (lx + 1)] = (gy < DIM - 1) ? in[(gy + 1) * DIM + gx] : 0;
+  }
+
   barrier(CLK_LOCAL_MEM_FENCE);   
 
   int my_changed = 0;
 
-  // What if we only rely on local cache ?
   if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
-    int idx = gy * DIM + gx;
-    unsigned center = in[idx];
-
+    unsigned center = tile[(ly + 1) * ROW_STRIDE + (lx + 1)];
     unsigned res = (center & 3)
-      + (in[idx - DIM] >> 2)   /* up    */
-      + (in[idx + DIM] >> 2)   /* down  */
-      + (in[idx - 1]   >> 2)   /* left  */
-      + (in[idx + 1]   >> 2);  /* right */
+      + (tile[(ly + 0) * ROW_STRIDE + (lx + 1)] >> 2)   /* up    */
+      + (tile[(ly + 2) * ROW_STRIDE + (lx + 1)] >> 2)   /* down  */
+      + (tile[(ly + 1) * ROW_STRIDE + (lx + 0)] >> 2)   /* left  */
+      + (tile[(ly + 1) * ROW_STRIDE + (lx + 2)] >> 2);  /* right */
 
-    out[idx] = res;
-
-    if (res != center)
-      my_changed = 1;
+    out[gy * DIM + gx] = res;
+    my_changed = (res != center);
   }
 
-  if (my_changed)
-    atomic_or(&local_changed, 1);
+  // Parallel reduction
+  int tid = ly * TILE_W + lx;
+  lflags[tid] = my_changed;
 
   barrier(CLK_LOCAL_MEM_FENCE); 
 
-  if (lx == 0 && ly == 0 && local_changed)
-    atomic_or(changed, 1);       
+  for (int s = (TILE_W * TILE_H) >> 1; s > 0; s >>= 1) {
+      if (tid < s) {
+          lflags[tid] |= lflags[tid + s];
+      }
+      barrier(CLK_LOCAL_MEM_FENCE);
+  }
+
+  if (tid == 0 && lflags[0])
+      atomic_or(changed, 1);       
 }
 
 #ifdef GL_BUFFER_SHARING
