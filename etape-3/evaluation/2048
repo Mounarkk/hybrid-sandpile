@@ -1,1 +1,2 @@
-OMP_NUM_THREADS=1 OMP_SCHEDULE=static ./run -k ssandPile -s 2048 -a spirals CHAINE_A_SUPPRIMER  
+OMP_PLACES=8:4 OMP_PROC_BIND=close OMP_NUM_THREADS=4 ./run -k ssandPile -v omp_lazy_border -wt opt_avx -th 4 -tw 16 -s 2048 -a spirals
+
