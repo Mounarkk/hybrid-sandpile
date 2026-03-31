@@ -705,20 +705,28 @@ unsigned ssandPile_compute_ocl_opt3 (unsigned nb_iter)
     if (max_k == 0)
       break;
 
+    // Set args once before the batch inner loop
+    err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                          &ocl_cur_buffer (0));
+    err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                           &ocl_next_buffer (0));
+    check (err, "Failed to set kernel args 0-1");
+
     for (unsigned k = 0; k < max_k; k++) {
       total_it += 4; // Kernel does 4 iterations internally
-      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
-                            &ocl_cur_buffer (0));
-      err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
-                             &ocl_next_buffer (0));
 
       err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
                                     NULL, global, local, 0, NULL, NULL);
 
-      // We swap only after the four internal GPU iterations
+      // Swap and re-bind for next iteration
       cl_mem tmp          = ocl_cur_buffer (0);
       ocl_cur_buffer (0)  = ocl_next_buffer (0);
       ocl_next_buffer (0) = tmp;
+
+      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                            &ocl_cur_buffer (0));
+      err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                             &ocl_next_buffer (0));
     }
 
     int changed;
