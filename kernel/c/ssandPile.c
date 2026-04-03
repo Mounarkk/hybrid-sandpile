@@ -47,73 +47,11 @@ void ssandPile_init (void)
   num_threads = omp_get_max_threads ();
 }
 
-void ssandPile_init_lazy (void)
-{
-  ssandPile_init ();
-
-  if (TILESET != NULL)
-    return;
-  TILESET = tileset_init (NB_TILES_X, NB_TILES_Y);
-
-  if (PER_SET != NULL)
-    return;
-  PER_SET = ezp_alloc (sizeof (char) * TOTAL_NB_SETS);
-  memset (PER_SET, 0, TOTAL_NB_SETS);
-
-  tileset_mark_full (TILESET);
-}
-
-void ssandPile_init_lazy_border (void)
-{
-  ssandPile_init_lazy ();
-}
-
-void ssandPile_init_omp_lazy (void)
-{
-  ssandPile_init_lazy ();
-
-  tilesets = malloc (sizeof (tileset_t *) * num_threads);
-  for (unsigned i = 0; i < num_threads; i++)
-    tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
-}
-
-void ssandPile_init_omp_lazy_border (void)
-{
-  ssandPile_init_omp_lazy ();
-}
-
 void ssandPile_finalize (void)
 {
   const unsigned size = 2 * DIM * DIM * sizeof (TYPE);
 
   ezp_free (TABLE, size);
-}
-
-void ssandPile_finalize_lazy (void)
-{
-  ssandPile_finalize ();
-  ezp_free (PER_SET, sizeof (char) * TOTAL_NB_SETS);
-  tileset_finalize (TILESET);
-}
-
-void ssandPile_finalize_lazy_border (void)
-{
-  ssandPile_finalize_lazy ();
-}
-
-void ssandPile_finalize_omp_lazy (void)
-{
-  ssandPile_finalize_lazy ();
-
-  for (unsigned i = 0; i < num_threads; i++)
-    tileset_finalize (tilesets [i]);
-
-  free ((void *)tilesets);
-}
-
-void ssandPile_finalize_omp_lazy_border (void)
-{
-  ssandPile_finalize_omp_lazy ();
 }
 
 int ssandPile_do_tile_default (int x, int y, int width, int height)
@@ -312,11 +250,74 @@ unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
 
   return 0;
 }
+
 /*
  * =============================================
  * LAZY EVALUATION
  * =============================================
  */
+
+void ssandPile_init_lazy (void)
+{
+  ssandPile_init ();
+
+  if (TILESET != NULL)
+    return;
+  TILESET = tileset_init (NB_TILES_X, NB_TILES_Y);
+
+  if (PER_SET != NULL)
+    return;
+  PER_SET = ezp_alloc (sizeof (char) * TOTAL_NB_SETS);
+  memset (PER_SET, 0, TOTAL_NB_SETS);
+
+  tileset_mark_full (TILESET);
+}
+
+void ssandPile_init_lazy_border (void)
+{
+  ssandPile_init_lazy ();
+}
+
+void ssandPile_init_omp_lazy (void)
+{
+  ssandPile_init_lazy ();
+
+  tilesets = malloc (sizeof (tileset_t *) * num_threads);
+  for (unsigned i = 0; i < num_threads; i++)
+    tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
+}
+
+void ssandPile_init_omp_lazy_border (void)
+{
+  ssandPile_init_omp_lazy ();
+}
+
+void ssandPile_finalize_lazy (void)
+{
+  ssandPile_finalize ();
+  ezp_free (PER_SET, sizeof (char) * TOTAL_NB_SETS);
+  tileset_finalize (TILESET);
+}
+
+void ssandPile_finalize_lazy_border (void)
+{
+  ssandPile_finalize_lazy ();
+}
+
+void ssandPile_finalize_omp_lazy (void)
+{
+  ssandPile_finalize_lazy ();
+
+  for (unsigned i = 0; i < num_threads; i++)
+    tileset_finalize (tilesets [i]);
+
+  free ((void *)tilesets);
+}
+
+void ssandPile_finalize_omp_lazy_border (void)
+{
+  ssandPile_finalize_omp_lazy ();
+}
 
 unsigned ssandPile_compute_lazy (unsigned nb_iter)
 {
