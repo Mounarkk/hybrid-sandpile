@@ -168,6 +168,83 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
         atomic_or(changed, 1);
 }
 
+__kernel void ssandPile_ocl_opt4(__global unsigned *in,
+                                 __global unsigned *out,
+                                 __global int      *changed)
+{
+    #define MARGIN4 5
+    #define TRUE_W4 (TILE_W + 2 * MARGIN4)
+    #define TRUE_H4 (TILE_H + 2 * MARGIN4)
+    #define IN_W4 (TRUE_W4 | 1) 
+    #define IN_H4 TRUE_H4
+    
+    __local unsigned tile0[IN_H4 * IN_W4];
+    __local unsigned tile1[IN_H4 * IN_W4];
+    __local int local_changed;
+    
+    int lx = get_local_id(0), ly = get_local_id(1);
+    int tid = ly * TILE_W + lx;
+    int wg_size = TILE_W * TILE_H;
+    int gx = get_global_id(0), gy = get_global_id(1);
+    int base_gx = get_group_id(0) * TILE_W;
+    int base_gy = get_group_id(1) * TILE_H;
+
+    if (tid == 0) local_changed = 0;
+
+    int total_cells = IN_H4 * IN_W4;
+
+    // 3-pass mapping
+    int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size;
+    int tx1 = i1 % IN_W4, ty1 = i1 / IN_W4;
+    int tx2 = i2 % IN_W4, ty2 = i2 / IN_W4;
+    int tx3 = i3 % IN_W4, ty3 = i3 / IN_W4;
+
+    // 1. STATIC LOAD (3 passes)
+    {
+        tile0[i1] = in[clamp(base_gy - MARGIN4 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx1, 0, DIM - 1)];
+        if (i2 < total_cells) 
+            tile0[i2] = in[clamp(base_gy - MARGIN4 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx2, 0, DIM - 1)];
+        if (i3 < total_cells) 
+            tile0[i3] = in[clamp(base_gy - MARGIN4 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx3, 0, DIM - 1)];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Iterations 1 to 4
+    #define PASS_OPT4(step, t_in, t_out) \
+    { \
+        if (tx1 >= step && tx1 < IN_W4 - step && ty1 >= step && ty1 < IN_H4 - step) { \
+            unsigned c = t_in[i1]; \
+            t_out[i1] = (c & 3) + (t_in[i1 - IN_W4] >> 2) + (t_in[i1 + IN_W4] >> 2) + (t_in[i1 - 1] >> 2) + (t_in[i1 + 1] >> 2); \
+        } \
+        if (i2 < total_cells && tx2 >= step && tx2 < IN_W4 - step && ty2 >= step && ty2 < IN_H4 - step) { \
+            unsigned c = t_in[i2]; \
+            t_out[i2] = (c & 3) + (t_in[i2 - IN_W4] >> 2) + (t_in[i2 + IN_W4] >> 2) + (t_in[i2 - 1] >> 2) + (t_in[i2 + 1] >> 2); \
+        } \
+        if (i3 < total_cells && tx3 >= step && tx3 < IN_W4 - step && ty3 >= step && ty3 < IN_H4 - step) { \
+            unsigned c = t_in[i3]; \
+            t_out[i3] = (c & 3) + (t_in[i3 - IN_W4] >> 2) + (t_in[i3 + IN_W4] >> 2) + (t_in[i3 - 1] >> 2) + (t_in[i3 + 1] >> 2); \
+        } \
+        barrier(CLK_LOCAL_MEM_FENCE); \
+    }
+
+    PASS_OPT4(1, tile0, tile1);
+    PASS_OPT4(2, tile1, tile0);
+    PASS_OPT4(3, tile0, tile1);
+    PASS_OPT4(4, tile1, tile0);
+
+    // Final iteration (exact match for output tile)
+    int i_final = (ly + MARGIN4) * IN_W4 + (lx + MARGIN4);
+    unsigned center = tile0[i_final];
+    unsigned res = (center & 3) + (tile0[i_final - IN_W4] >> 2) + (tile0[i_final + IN_W4] >> 2) + (tile0[i_final - 1] >> 2) + (tile0[i_final + 1] >> 2);
+    
+    if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
+        out[gy * DIM + gx] = res;
+        if (res != center) atomic_or(&local_changed, 1);
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (tid == 0 && local_changed) atomic_or(changed, 1);
+}
+
 #ifdef GL_BUFFER_SHARING
 
 // DO NOT MODIFY: this kernel updates the OpenGL texture buffer
