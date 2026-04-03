@@ -664,6 +664,37 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
   return diff;
 }
 
+int ssandPile_do_tile_avx (int x, int y, int width, int height)
+{
+  TYPE *in_cell            = table_cell (TABLE, in, y, x);
+  TYPE *out_cell           = table_cell (TABLE, out, y, x);
+  const __m256i mask_mod_4 = _mm256_set1_epi32 (3);
+  __m256i vec_buff [4][3]  = {0}; /* 4 * 3 = 12 out of 16 register */
+  const int offset         = DIM - width;
+  int diff                 = 0;
+
+  if (width != TILE_W)
+    return ssandPile_do_tile_opt_border (x, y, width, height);
+
+  for (int i = 0; i < height; i++) { /* 4 */
+    int is_border_down = (i == (height - 1));
+    int is_border_up   = (i == 0);
+
+    for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
+      int is_border_right = (j == (width - AVX_VEC_SIZE_INT));
+      int is_border_left  = (j == 0);
+
+      in_cell += DIM;
+      out_cell += DIM;
+    }
+
+    in_cell += offset;
+    out_cell += offset;
+  }
+
+  return diff;
+}
+
 #endif
 
 #ifdef ENABLE_OPENCL
