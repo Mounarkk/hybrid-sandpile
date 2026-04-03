@@ -66,17 +66,23 @@ void sandPile_debug (int x, int y);
 #define SANDPILE_UNROLL_LOOP(x) _Pragma (SANDPILE_STR (unroll x))
 #endif
 
-#define SANDPILE_BORDER_GET_SELF(x) ((x) & 1)
-#define SANDPILE_BORDER_GET_UP(x) (((x) >> 1) & 1)
-#define SANDPILE_BORDER_GET_DOWN(x) (((x) >> 2) & 1)
-#define SANDPILE_BORDER_GET_LEFT(x) (((x) >> 3) & 1)
-#define SANDPILE_BORDER_GET_RIGHT(x) (((x) >> 4) & 1)
+#define SANDPILE_BORDER_SELF  (1)
+#define SANDPILE_BORDER_UP    (1 << 1)
+#define SANDPILE_BORDER_DOWN  (1 << 2)
+#define SANDPILE_BORDER_LEFT  (1 << 3)
+#define SANDPILE_BORDER_RIGHT (1 << 4)
 
-#define SANDPILE_BORDER_SET_SELF(x) ((x) & 1)
-#define SANDPILE_BORDER_SET_UP(x, set) ((x) << (1 * (set)))
-#define SANDPILE_BORDER_SET_DOWN(x, set) ((x) << (2 * (set)))
-#define SANDPILE_BORDER_SET_LEFT(x, set) ((x) << (3 * (set)))
-#define SANDPILE_BORDER_SET_RIGHT(x, set) ((x) << (4 * (set)))
+#define SANDPILE_BORDER_GET_SELF(x)   ((x) & SANDPILE_BORDER_SELF)
+#define SANDPILE_BORDER_GET_UP(x)     ((x) & SANDPILE_BORDER_UP)
+#define SANDPILE_BORDER_GET_DOWN(x)   ((x) & SANDPILE_BORDER_DOWN)
+#define SANDPILE_BORDER_GET_LEFT(x)   ((x) & SANDPILE_BORDER_UP)
+#define SANDPILE_BORDER_GET_RIGHT(x)  ((x) & SANDPILE_BORDER_RIGHT)
+
+#define SANDPILE_BORDER_SET_SELF(x)       (SANDPILE_BORDER_SELF   * ((x) != 0))
+#define SANDPILE_BORDER_SET_UP(x, set)    (SANDPILE_BORDER_UP     * ((x) != 0) * ((set) != 0))
+#define SANDPILE_BORDER_SET_DOWN(x, set)  (SANDPILE_BORDER_DOWN   * ((x) != 0) * ((set) != 0))
+#define SANDPILE_BORDER_SET_LEFT(x, set)  (SANDPILE_BORDER_LEFT   * ((x) != 0) * ((set) != 0))
+#define SANDPILE_BORDER_SET_RIGHT(x, set) (SANDPILE_BORDER_RIGHT  * ((x) != 0) * ((set) != 0))
 
 // =========================================================================
 // LAZY EVALUATION QUADTREE
