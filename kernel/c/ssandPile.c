@@ -220,7 +220,6 @@ unsigned ssandPile_compute_omp_taskloop (unsigned nb_iter)
 }
 
 // OpenMP parallelized version using tiled decomposition
-//
 // Usage: OMP_SCHEDULE=dynamic,4 ./run -k ssandPile -v omp_tiled -s <SIZE>
 unsigned ssandPile_compute_omp_tiled (unsigned nb_iter)
 {
@@ -584,6 +583,18 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
 #include <immintrin.h>
 
+__m256i rotate_right (__m256i v)
+{
+  const __m256i scheme = _mm256_setr_epi32 (7, 0, 1, 2, 3, 4, 5, 6);
+  return _mm256_permutevar8x32_epi32 (v, scheme);
+}
+
+__m256i rotate_left (__m256i v)
+{
+  const __m256i scheme = _mm256_setr_epi32 (1, 2, 3, 4, 5, 6, 7, 0);
+  return _mm256_permutevar8x32_epi32 (v, scheme);
+}
+
 void ssandpile_tile_check_opt_avx (void)
 {
   easypap_vec_check (AVX_VEC_SIZE_INT, DIR_HORIZONTAL);
@@ -620,8 +631,6 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
       int is_border_up   = (i == 0);
       int is_border_down = (i == (height - 1));
 
-      down_vec          = _mm256_maskload_epi32 ((int *)(in_cell + DIM), mask);
-      down_vec          = _mm256_maskload_epi32 ((int *)(in_cell + DIM), mask);
       down_vec          = _mm256_maskload_epi32 ((int *)(in_cell + DIM), mask);
       __m256i left_vec  = _mm256_maskload_epi32 ((int *)(in_cell - 1), mask);
       __m256i right_vec = _mm256_maskload_epi32 ((int *)(in_cell + 1), mask);
@@ -667,26 +676,77 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
 
 int ssandPile_do_tile_avx (int x, int y, int width, int height)
 {
-  TYPE *in_cell            = table_cell (TABLE, in, y, x);
-  TYPE *out_cell           = table_cell (TABLE, out, y, x);
-  const __m256i mask_mod_4 = _mm256_set1_epi32 (3);
-  __m256i vec_buff [4][3]  = {0}; /* 4 * 3 = 12 out of 16 register */
-  const int offset         = DIM - width;
-  int diff                 = 0;
-
   if (width != TILE_W)
     return ssandPile_do_tile_opt_border (x, y, width, height);
 
-  for (int i = 0; i < height; i++) { /* 4 */
+  TYPE *in_cell  = table_cell (TABLE, in, y, x);
+  TYPE *out_cell = table_cell (TABLE, out, y, x);
+
+  const __m256i mask_mod_4      = _mm256_set1_epi32 (3);
+  const __m256i mask_last_only  = _mm256_set_epi32 (-1, 0, 0, 0, 0, 0, 0, 0);
+  const __m256i mask_first_only = _mm256_set_epi32 (0, 0, 0, 0, 0, 0, 0, -1);
+
+  const int offset = DIM - width;
+  int diff         = 0;
+
+  /* Buffer the next two colums of 3 elements */
+  const int buff_height = 3;
+  const int buff_width  = 2;
+  __m256i vec_buff [buff_height][buff_width];
+  __m256i trailing_vec;
+
+  for (int i = 0; i < height; i++) {
     int is_border_down = (i == (height - 1));
     int is_border_up   = (i == 0);
 
+    /* load right border */
+    for (int k = 0; k < buff_height; k++)
+      vec_buff [k][buff_width - 1] =
+          _mm256_loadu_epi32 (in_cell + (k - 1) * DIM);
+
+    /* load left value: only load last value */
+    vec_buff [1][0] = _mm256_maskload_epi32 (
+        (int *)(in_cell - AVX_VEC_SIZE_INT), mask_last_only);
+
+    /* Inner loop */
     for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
       int is_border_right = (j == (width - AVX_VEC_SIZE_INT));
       int is_border_left  = (j == 0);
 
-      in_cell += DIM;
-      out_cell += DIM;
+      trailing_vec =
+          vec_buff [0][1]; /* left/center is previous center/center */
+
+      /* shift right column left */
+      for (int k = 0; k < buff_height; k++)
+        vec_buff [k][0] = vec_buff [k][1];
+
+      /* Load missing values */
+      for (int k = 0; k < buff_height; k++)
+        vec_buff [k][1] =
+            _mm256_loadu_epi32 (in_cell + (k - 1) * DIM + AVX_VEC_SIZE_INT);
+
+      __m256i curr_cell = vec_buff [1][1];
+      __m256i right_vec = _mm256_blend_epi32 (
+          rotate_left (curr_cell), rotate_left (vec_buff [1][2]), 0b00000001);
+      __m256i left_vec = _mm256_blend_epi32 (
+          rotate_right (curr_cell), rotate_right (trailing_vec), 0b10000000);
+
+      /* cell & 2 */
+      __m256i res = _mm256_and_si256 (curr_cell, mask_mod_4);
+
+      /* add left for each vec */
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (vec_buff [0][1], 2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (vec_buff [2][1], 2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_vec, 2));
+      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_vec, 2));
+      _mm256_store_epi32 ((int *)out_cell, res);
+
+      __m256 cast              = (__m256)_mm256_cmpeq_epi32 (res, curr_cell);
+      unsigned char change_vec = ~(unsigned char)_mm256_movemask_ps (cast);
+      diff |= change_vec != 0;
+
+      in_cell += AVX_VEC_SIZE_INT;
+      out_cell += AVX_VEC_SIZE_INT;
     }
 
     in_cell += offset;
