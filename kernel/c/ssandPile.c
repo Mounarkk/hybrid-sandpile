@@ -690,16 +690,11 @@ int ssandPile_do_tile_opt_avx_default (int x, int y, int width, int height)
   TYPE *out_cell = table_cell (TABLE, out, y, x);
 
   for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
-    int is_border_left  = (j == 0);
-    int is_border_right = (j == (width - AVX_VEC_SIZE_INT));
-
     __m256i up_vec     = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
     __m256i center_vec = _mm256_load_si256 ((__m256i *)(in_cell));
     __m256i down_vec;
 
     for (int i = 0; i < height; i++) {
-      int is_border_up   = (i == 0);
-      int is_border_down = (i == (height - 1));
 
       __m256i res = _mm256_and_si256 (center_vec, m256_3);
       res         = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, 2));
@@ -743,6 +738,7 @@ int ssandPile_do_tile_opt_avx_default (int x, int y, int width, int height)
 
 int ssandPile_do_tile_avx (int x, int y, int width, int height)
 {
+
   int left_tile  = x == 1;
   int right_tile = x + width == DIM - 1;
   width += left_tile + right_tile;
@@ -758,43 +754,71 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
   const __m256i mask_mod_4 = _mm256_set1_epi32 (3);
 
   for (int i = 0; i < height; i++) {
+    int is_border_up   = (i == 0);
+    int is_border_down = (i == (height - 1));
     __m256i left_vec, center_vec, right_vec;
 
-    left_vec   = _mm256_set_epi32 (*(in_cell - 1), 0, 0, 0, 0, 0, 0, 0);
+    left_vec =
+        _mm256_set_epi32 (*(in_cell - 1 * !left_tile), 0, 0, 0, 0, 0, 0, 0);
     center_vec = _mm256_load_si256 ((__m256i *)in_cell);
 
     for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
+      int is_border_left  = (j == 0);
+      int is_border_right = (j == (width - AVX_VEC_SIZE_INT));
+      int do_left         = -1 * (!is_border_left | !left_tile);
+      int do_right        = -1 * (!is_border_right | !right_tile);
+
+      __m256i mask =
+          _mm256_set_epi32 (do_right, -1, -1, -1, -1, -1, -1, do_left);
+      __m256i up_vec   = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
+      __m256i down_vec = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
       right_vec = _mm256_load_si256 ((__m256i *)(in_cell + AVX_VEC_SIZE_INT));
+
+      __m256i cross_vec = _mm256_blend_epi32 (center_vec, left_vec, 0b10000000);
+      cross_vec         = _mm256_blend_epi32 (cross_vec, right_vec, 0b00000001);
+      const __m256i boundary_cross_scheme =
+          _mm256_setr_epi32 (7, 0, 0, 4, 3, 0, 0, 0);
+      __m256i vec_crossed =
+          _mm256_permutevar8x32_epi32 (cross_vec, boundary_cross_scheme);
+
+      __m256i right_shifted =
+          _mm256_bsrli_epi128 (center_vec, sizeof (unsigned int));
+      __m256i left_shifted =
+          _mm256_bslli_epi128 (center_vec, sizeof (unsigned int));
+
+      __m256i right_added_vec =
+          _mm256_blend_epi32 (right_shifted, vec_crossed, 0b10001000);
+      __m256i left_added_vec =
+          _mm256_blend_epi32 (left_shifted, vec_crossed, 0b00010001);
 
       __m256i res = _mm256_and_si256 (center_vec, mask_mod_4);
 
-      __m256i right_div_vec = _mm256_blend_epi32 (
-          rotate_left (center_vec), rotate_left (right_vec), 1 << 7);
-      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_div_vec, 2));
+      __m256i sides = _mm256_add_epi32 (_mm256_srli_epi32 (left_added_vec, 2),
+                                        _mm256_srli_epi32 (right_added_vec, 2));
 
-      __m256i left_div_vec = _mm256_blend_epi32 (rotate_right (center_vec),
-                                                 rotate_right (left_vec), 1);
-      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_div_vec, 2));
+      __m256i tops = _mm256_add_epi32 (_mm256_srli_epi32 (down_vec, 2),
+                                       _mm256_srli_epi32 (up_vec, 2));
+      tops         = _mm256_add_epi32 (tops, sides);
+      res          = _mm256_add_epi32 (res, tops);
 
-      __m256i up_vec = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
-      res            = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, 2));
-
-      __m256i down_vec = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
-      res = _mm256_add_epi32 (res, _mm256_srli_epi32 (down_vec, 2));
-
-      /* only store the left if not on left side, only store right if not on
-       * right side */
-      int do_left  = -1 * ((j != 0) | !left_tile);
-      int do_right = -1 * ((j + AVX_VEC_SIZE_INT != width) | !right_tile);
-      __m256i mask =
-          _mm256_set_epi32 (do_right, -1, -1, -1, -1, -1, -1, do_left);
       res = _mm256_blendv_epi8 (mask_zero, res, mask);
 
       _mm256_store_si256 ((__m256i *)out_cell, res);
 
       __m256 cast              = (__m256)_mm256_cmpeq_epi32 (res, center_vec);
       unsigned char change_vec = ~(unsigned char)_mm256_movemask_ps (cast);
-      diff |= change_vec != 0;
+
+      char change_left  = change_vec & 1;
+      char change_right = (change_vec >> (AVX_VEC_SIZE_INT - 1)) & 1;
+
+      int self_flag = SANDPILE_BORDER_SET_SELF (change_vec != 0);
+      int up_flag   = SANDPILE_BORDER_SET_UP (self_flag, is_border_up);
+      int down_flag = SANDPILE_BORDER_SET_DOWN (self_flag, is_border_down);
+      int left_flag = SANDPILE_BORDER_SET_LEFT (change_left, is_border_left);
+      int right_flag =
+          SANDPILE_BORDER_SET_RIGHT (change_right, is_border_right);
+
+      diff |= self_flag | up_flag | down_flag | left_flag | right_flag;
 
       in_cell += AVX_VEC_SIZE_INT;
       out_cell += AVX_VEC_SIZE_INT;
@@ -821,7 +845,6 @@ int ssandPile_do_tile_avx_default (int x, int y, int width, int height)
   TYPE *in_cell  = table_cell (TABLE, in, y, x);
   TYPE *out_cell = table_cell (TABLE, out, y, x);
 
-  const __m256i mask_zero  = _mm256_set1_epi32 (0);
   const __m256i mask_mod_4 = _mm256_set1_epi32 (3);
 
   for (int i = 0; i < height; i++) {
@@ -837,16 +860,16 @@ int ssandPile_do_tile_avx_default (int x, int y, int width, int height)
 
       __m256i res = _mm256_and_si256 (center_vec, mask_mod_4);
 
-      // __m256i right_div_vec = _mm256_blend_epi32 (
-      //     rotate_left (center_vec), rotate_left (right_vec), 1 << 7);
+      __m256i right_div_vec = _mm256_blend_epi32 (
+          rotate_left (center_vec), rotate_left (right_vec), 1 << 7);
 
-      __m256i right_div_vec = _mm256_loadu_si256 ((__m256i *)(in_cell + 1));
+      // __m256i right_div_vec = _mm256_loadu_si256 ((__m256i *)(in_cell + 1));
       res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_div_vec, 2));
 
-      // __m256i left_div_vec = _mm256_blend_epi32 (rotate_right (center_vec),
-      //                                            rotate_right (left_vec), 1);
+      __m256i left_div_vec = _mm256_blend_epi32 (rotate_right (center_vec),
+                                                 rotate_right (left_vec), 1);
 
-      __m256i left_div_vec = _mm256_loadu_si256 ((__m256i *)(in_cell - 1));
+      // __m256i left_div_vec = _mm256_loadu_si256 ((__m256i *)(in_cell - 1));
       res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_div_vec, 2));
 
       __m256i up_vec = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
