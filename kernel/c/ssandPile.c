@@ -768,39 +768,34 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
       int do_left         = -1 * (!is_border_left | !left_tile);
       int do_right        = -1 * (!is_border_right | !right_tile);
 
-      __m256i mask =
-          _mm256_set_epi32 (do_right, -1, -1, -1, -1, -1, -1, do_left);
-      __m256i up_vec   = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
-      __m256i down_vec = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
       right_vec = _mm256_load_si256 ((__m256i *)(in_cell + AVX_VEC_SIZE_INT));
 
       __m256i cross_vec = _mm256_blend_epi32 (center_vec, left_vec, 0b10000000);
       cross_vec         = _mm256_blend_epi32 (cross_vec, right_vec, 0b00000001);
-      const __m256i boundary_cross_scheme =
-          _mm256_setr_epi32 (7, 0, 0, 4, 3, 0, 0, 0);
-      __m256i vec_crossed =
-          _mm256_permutevar8x32_epi32 (cross_vec, boundary_cross_scheme);
 
-      __m256i right_shifted =
-          _mm256_bsrli_epi128 (center_vec, sizeof (unsigned int));
-      __m256i left_shifted =
-          _mm256_bslli_epi128 (center_vec, sizeof (unsigned int));
+      __m256i vec_crossed = _mm256_permutevar8x32_epi32 (
+          cross_vec, _mm256_setr_epi32 (7, 0, 0, 4, 3, 0, 0, 0));
 
-      __m256i right_added_vec =
-          _mm256_blend_epi32 (right_shifted, vec_crossed, 0b10001000);
-      __m256i left_added_vec =
-          _mm256_blend_epi32 (left_shifted, vec_crossed, 0b00010001);
+      __m256i right_added_vec = _mm256_blend_epi32 (
+          _mm256_bsrli_epi128 (center_vec, sizeof (unsigned int)), vec_crossed,
+          0b10001000);
 
-      __m256i res = _mm256_and_si256 (center_vec, mask_mod_4);
+      __m256i left_added_vec = _mm256_blend_epi32 (
+          _mm256_bslli_epi128 (center_vec, sizeof (unsigned int)), vec_crossed,
+          0b00010001);
 
-      __m256i sides = _mm256_add_epi32 (_mm256_srli_epi32 (left_added_vec, 2),
-                                        _mm256_srli_epi32 (right_added_vec, 2));
+      __m256i res = _mm256_add_epi32 (_mm256_srli_epi32 (left_added_vec, 2),
+                                      _mm256_srli_epi32 (right_added_vec, 2));
+      res = _mm256_add_epi32 (res, _mm256_and_si256 (center_vec, mask_mod_4));
 
-      __m256i tops = _mm256_add_epi32 (_mm256_srli_epi32 (down_vec, 2),
-                                       _mm256_srli_epi32 (up_vec, 2));
-      tops         = _mm256_add_epi32 (tops, sides);
-      res          = _mm256_add_epi32 (res, tops);
+      __m256i up_vec   = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
+      __m256i down_vec = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
+      __m256i tops     = _mm256_add_epi32 (_mm256_srli_epi32 (down_vec, 2),
+                                           _mm256_srli_epi32 (up_vec, 2));
+      res              = _mm256_add_epi32 (res, tops);
 
+      __m256i mask =
+          _mm256_set_epi32 (do_right, -1, -1, -1, -1, -1, -1, do_left);
       res = _mm256_blendv_epi8 (mask_zero, res, mask);
 
       _mm256_store_si256 ((__m256i *)out_cell, res);
