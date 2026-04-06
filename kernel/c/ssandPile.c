@@ -585,18 +585,6 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
 #include <immintrin.h>
 
-__m256i rotate_right (__m256i v)
-{
-  const __m256i scheme = _mm256_setr_epi32 (7, 0, 1, 2, 3, 4, 5, 6);
-  return _mm256_permutevar8x32_epi32 (v, scheme);
-}
-
-__m256i rotate_left (__m256i v)
-{
-  const __m256i scheme = _mm256_setr_epi32 (1, 2, 3, 4, 5, 6, 7, 0);
-  return _mm256_permutevar8x32_epi32 (v, scheme);
-}
-
 void ssandpile_tile_check_opt_avx (void)
 {
   easypap_vec_check (AVX_VEC_SIZE_INT, DIR_HORIZONTAL);
@@ -622,8 +610,8 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
     int do_right = -1 * !((x + j == DIM - AVX_VEC_SIZE_INT) & on_side);
     __m256i mask = _mm256_set_epi32 (do_right, -1, -1, -1, -1, -1, -1, do_left);
 
-    __m256i up_vec     = _mm256_maskload_epi32 ((int *)(in_cell - DIM), mask);
-    __m256i center_vec = _mm256_maskload_epi32 ((int *)(in_cell), mask);
+    __m256i up_vec     = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
+    __m256i center_vec = _mm256_load_si256 ((__m256i *)(in_cell));
     __m256i down_vec;
 
     int is_border_left  = (j == 0);
@@ -635,7 +623,7 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
 
       __m256i res = _mm256_and_si256 (center_vec, m256_3);
 
-      down_vec          = _mm256_maskload_epi32 ((int *)(in_cell + DIM), mask);
+      down_vec          = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
       __m256i left_vec  = _mm256_maskload_epi32 ((int *)(in_cell - 1), mask);
       __m256i right_vec = _mm256_maskload_epi32 ((int *)(in_cell + 1), mask);
 

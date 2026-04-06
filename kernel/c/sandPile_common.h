@@ -243,4 +243,23 @@ int tileset_merge_omp (tileset_t tileset, tileset_t *restrict others,
 
 int tileset_count (tileset_t tileset);
 
+
+#if __AVX2__ == 1
+
+#include <immintrin.h>
+
+inline __m256i rotate_right (__m256i v)
+{
+  const __m256i scheme = _mm256_setr_epi32 (7, 0, 1, 2, 3, 4, 5, 6);
+  return _mm256_permutevar8x32_epi32 (v, scheme);
+}
+
+inline __m256i rotate_left (__m256i v)
+{
+  const __m256i scheme = _mm256_setr_epi32 (1, 2, 3, 4, 5, 6, 7, 0);
+  return _mm256_permutevar8x32_epi32 (v, scheme);
+}
+
+#endif
+
 #endif // SANDPILE_COMMON_H
