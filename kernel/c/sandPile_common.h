@@ -166,13 +166,33 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
  * =========================================================================
  */
 
-#define BITSET_POW 6
 #define BITSET_SIZE 64
+
+#if BITSET_SIZE == 8
+
+#define BITSET_POW 3
+typedef uint8_t bitset;
+
+#elif BITSET_SIZE == 16
+
+#define BITSET_POW 4
+typedef uint16_t bitset;
+
+#elif BITSET_SIZE == 32
+
+#define BITSET_POW 5
+typedef uint32_t bitset;
+
+#elif BITSET_SIZE == 64
+
+#define BITSET_POW 6
+typedef uint64_t bitset;
+
+#endif
 
 #define BITSET_SIZE_MOD(x) ((x) & (BITSET_SIZE - 1))
 #define BITSET_SIZE_DIV(x) ((x) >> BITSET_POW)
 #define BITSET_SIZE_MUL(x) ((x) << BITSET_POW)
-typedef uint64_t bitset;
 
 static inline const int bitset_clz(bitset set) {
   return __builtin_clzll(set) - (64 - BITSET_SIZE);
