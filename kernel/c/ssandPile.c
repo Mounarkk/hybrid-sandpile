@@ -624,6 +624,10 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
     int is_border_right = (j == (width - AVX_VEC_SIZE_INT));
 
     for (int i = 0; i < height; i++) {
+      __builtin_prefetch(down_row + i * DIM - 1, 0);
+      __builtin_prefetch(down_row + i * DIM, 0);
+      __builtin_prefetch(down_row + i * DIM + 1, 0);
+
       int is_border_up   = (i == 0);
       int is_border_down = (i == (height - 1));
 
