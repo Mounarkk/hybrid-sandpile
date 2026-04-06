@@ -269,6 +269,8 @@ void ssandPile_init_lazy (void)
   PER_SET = ezp_alloc (sizeof (char) * TOTAL_NB_SETS);
   memset (PER_SET, 0, TOTAL_NB_SETS);
 
+  printf ("TOTAL_NB_SETS %d, SETS_PER_ROW %d, \n", TOTAL_NB_SETS, SETS_PER_ROW);
+
   tileset_mark_full (TILESET);
 }
 
@@ -335,7 +337,7 @@ unsigned ssandPile_compute_lazy (unsigned nb_iter)
       unsigned set_x  = i - tile_y * SETS_PER_ROW;
 
       for (unsigned char k = 0; k < in_set; k++) {
-        unsigned pos = __builtin_clzll (sets [i]);
+        unsigned pos = bitset_clz (sets [i]);
         sets [i] -= bitset_at (pos);
 
         tile t;
@@ -394,7 +396,7 @@ unsigned ssandPile_compute_lazy_border (unsigned nb_iter)
       unsigned set_x       = i - tile_y * SETS_PER_ROW;
 
       for (unsigned char k = 0; k < in_set; k++) {
-        unsigned pos = __builtin_clzll (sets [i]);
+        unsigned pos = bitset_clz (sets [i]);
         sets [i] -= bitset_at (pos);
 
         tile t;
@@ -462,7 +464,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
         unsigned set_x       = i - tile_y * SETS_PER_ROW;
 
         for (unsigned char k = 0; k < in_set; k++) {
-          unsigned pos = __builtin_clzll (sets [i]);
+          unsigned pos = bitset_clz (sets [i]);
           sets [i] -= bitset_at (pos);
 
           tile t;
@@ -526,7 +528,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
         bitset set           = sets [i];
 
         for (unsigned char k = 0; k < in_set; k++) {
-          unsigned pos = __builtin_clzll (set);
+          unsigned pos = bitset_clz (set);
           set -= bitset_at (pos);
 
           tile t;
@@ -631,12 +633,13 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
       int is_border_up   = (i == 0);
       int is_border_down = (i == (height - 1));
 
+      __m256i res = _mm256_and_si256 (center_vec, m256_3);
+
       down_vec          = _mm256_maskload_epi32 ((int *)(in_cell + DIM), mask);
       __m256i left_vec  = _mm256_maskload_epi32 ((int *)(in_cell - 1), mask);
       __m256i right_vec = _mm256_maskload_epi32 ((int *)(in_cell + 1), mask);
 
       /* cell & 3 */
-      __m256i res = _mm256_and_si256 (center_vec, m256_3);
 
       res = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, 2));
       res = _mm256_add_epi32 (res, _mm256_srli_epi32 (down_vec, 2));
@@ -687,12 +690,17 @@ int ssandPile_do_tile_opt_avx_default (int x, int y, int width, int height)
   TYPE *out_cell = table_cell (TABLE, out, y, x);
 
   for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
+    int is_border_left  = (j == 0);
+    int is_border_right = (j == (width - AVX_VEC_SIZE_INT));
 
     __m256i up_vec     = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
     __m256i center_vec = _mm256_load_si256 ((__m256i *)(in_cell));
     __m256i down_vec;
 
     for (int i = 0; i < height; i++) {
+      int is_border_up   = (i == 0);
+      int is_border_down = (i == (height - 1));
+
       __m256i res = _mm256_and_si256 (center_vec, m256_3);
       res         = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, 2));
 
@@ -713,8 +721,8 @@ int ssandPile_do_tile_opt_avx_default (int x, int y, int width, int height)
       int self_flag = SANDPILE_BORDER_SET_SELF (change_vec != 0);
       // int up_flag   = SANDPILE_BORDER_SET_UP (self_flag, is_border_up);
       // int down_flag = SANDPILE_BORDER_SET_DOWN (self_flag, is_border_down);
-      // int left_flag = SANDPILE_BORDER_SET_LEFT (change_left,
-      // is_border_left); int right_flag =
+      // int left_flag = SANDPILE_BORDER_SET_LEFT (change_left, is_border_left);
+      // int right_flag =
       //     SANDPILE_BORDER_SET_RIGHT (change_right, is_border_right);
 
       diff |= self_flag; //| up_flag | down_flag | left_flag | right_flag;

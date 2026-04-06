@@ -327,7 +327,8 @@ int qt_compute_iteration (qt_tile_fn tile_func)
 #define TILESET_MEM_ALIGN 1    /* Try to align the values of the struct */
 
 #if TILESET_MEM_ALIGN == 1
-#define TILESET_MEM_ALIGN_TO(addr, align) ((((uintptr_t)(addr)) + align - 1) & ~(align - 1))
+#define TILESET_MEM_ALIGN_TO(addr, align)                                      \
+  ((((uintptr_t)(addr)) + align - 1) & ~(align - 1))
 #define TILESET_MEM_GET_ALIGN(type) (alignof (type))
 #else
 #define TILESET_MEM_ALIGN_TO(addr, align) (addr + 0 * align)
@@ -355,13 +356,13 @@ tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   TRUNC_MASK    = ~(mask * (tiles_left != 0));
   TILES_PER_ROW = tiles_per_row;
 
-  int bitset_align = TILESET_MEM_GET_ALIGN (bitset);
+  int bitset_align    = TILESET_MEM_GET_ALIGN (bitset);
   unsigned total_size = sizeof (struct _tileset);
   total_size += TILESET_MEM_PADDING;
   total_size += sizeof (bitset) * TOTAL_NB_SETS + bitset_align;
 
   /*  Allocate as one big continuous chunk of memory */
-  tileset_t tileset = ezp_alloc(total_size);
+  tileset_t tileset = ezp_alloc (total_size);
   if (tileset == NULL)
     return NULL;
 
@@ -376,12 +377,12 @@ void tileset_finalize (tileset_t tileset)
   if (tileset == NULL)
     return;
 
-  int bitset_align = TILESET_MEM_GET_ALIGN (bitset);
+  int bitset_align    = TILESET_MEM_GET_ALIGN (bitset);
   unsigned total_size = sizeof (struct _tileset);
   total_size += TILESET_MEM_PADDING;
   total_size += sizeof (bitset) * TOTAL_NB_SETS + bitset_align;
 
-  ezp_free((void *)tileset, total_size);
+  ezp_free ((void *)tileset, total_size);
 }
 
 void tileset_mark_at (tileset_t tileset, int change, const tile t)
@@ -400,7 +401,7 @@ void tileset_mark_full (tileset_t tileset)
   for (unsigned i = 0; i < total; i++) {
     bitset set              = (~((bitset)0)) & TRUNC_MASK;
     tileset_at (tileset, i) = set;
-    PER_SET [i]             = __builtin_popcountll (set);
+    PER_SET [i]             = bitset_count (set);
   }
 }
 
@@ -428,7 +429,7 @@ int tileset_merge (tileset_t tile, tileset_t *restrict others,
 {
 
   for (unsigned i = 0; i < nb_others; i++)
-    for (unsigned j = 0; j < TOTAL_NB_SETS; j++)    
+    for (unsigned j = 0; j < TOTAL_NB_SETS; j++)
       tileset_at (tile, j) |= tileset_at (others [i], j);
 
   return tileset_count (tile);
@@ -451,7 +452,7 @@ inline int tileset_count (tileset_t tileset)
   int left = 0;
 
   for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
-    PER_SET [i] = __builtin_popcountll (tileset_at (tileset, i));
+    PER_SET [i] = bitset_count (tileset_at (tileset, i));
     left |= (PER_SET [i] != 0);
   }
 
