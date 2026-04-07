@@ -180,7 +180,8 @@ __kernel void ssandPile_ocl_opt4(__global unsigned *in,
     
     __local unsigned tile0[IN_H4 * IN_W4];
     __local unsigned tile1[IN_H4 * IN_W4];
-    __local int local_changed;
+    // One slot per thread, collapsed to 1 atomic
+    __local int change_flags[TILE_W * TILE_H];
     
     int lx = get_local_id(0), ly = get_local_id(1);
     int tid = ly * TILE_W + lx;
@@ -189,24 +190,20 @@ __kernel void ssandPile_ocl_opt4(__global unsigned *in,
     int base_gx = get_group_id(0) * TILE_W;
     int base_gy = get_group_id(1) * TILE_H;
 
-    if (tid == 0) local_changed = 0;
-
     int total_cells = IN_H4 * IN_W4;
 
-    // 3-pass mapping
+    // 3-pass mapping 
     int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size;
     int tx1 = i1 % IN_W4, ty1 = i1 / IN_W4;
     int tx2 = i2 % IN_W4, ty2 = i2 / IN_W4;
     int tx3 = i3 % IN_W4, ty3 = i3 / IN_W4;
 
-    // 1. STATIC LOAD (3 passes)
-    {
-        tile0[i1] = in[clamp(base_gy - MARGIN4 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx1, 0, DIM - 1)];
-        if (i2 < total_cells) 
-            tile0[i2] = in[clamp(base_gy - MARGIN4 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx2, 0, DIM - 1)];
-        if (i3 < total_cells) 
-            tile0[i3] = in[clamp(base_gy - MARGIN4 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx3, 0, DIM - 1)];
-    }
+    // 1. STATIC LOAD (3 passes, no loop overhead)
+    tile0[i1] = in[clamp(base_gy - MARGIN4 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx1, 0, DIM - 1)];
+    if (i2 < total_cells) 
+        tile0[i2] = in[clamp(base_gy - MARGIN4 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx2, 0, DIM - 1)];
+    if (i3 < total_cells) 
+        tile0[i3] = in[clamp(base_gy - MARGIN4 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx3, 0, DIM - 1)];
     barrier(CLK_LOCAL_MEM_FENCE);
 
     // Iterations 1 to 4
@@ -236,13 +233,109 @@ __kernel void ssandPile_ocl_opt4(__global unsigned *in,
     int i_final = (ly + MARGIN4) * IN_W4 + (lx + MARGIN4);
     unsigned center = tile0[i_final];
     unsigned res = (center & 3) + (tile0[i_final - IN_W4] >> 2) + (tile0[i_final + IN_W4] >> 2) + (tile0[i_final - 1] >> 2) + (tile0[i_final + 1] >> 2);
-    
-    if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
-        out[gy * DIM + gx] = res;
-        if (res != center) atomic_or(&local_changed, 1);
-    }
+
+    // Each thread writes its private change flag into LDS
+    // A log2(wg_size) tree reduction collapses all 512 flags into change_flags[0]
+    // Only thread 0 then issues a single atomic_or to global memory.
+    int valid = (gx > 0) && (gx < DIM - 1) && (gy > 0) && (gy < DIM - 1);
+    if (valid) out[gy * DIM + gx] = res;
+    int my_changed = valid && (res != center);
+
+    change_flags[tid] = my_changed;
     barrier(CLK_LOCAL_MEM_FENCE);
-    if (tid == 0 && local_changed) atomic_or(changed, 1);
+
+    // Tree reduction: fold wg_size flags into change_flags[0]
+    for (int s = wg_size >> 1; s > 0; s >>= 1) {
+        if (tid < s)
+            change_flags[tid] |= change_flags[tid + s];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    // Single atomic per workgroup instead of one per changed thread
+    if (tid == 0 && change_flags[0])
+        atomic_or(changed, 1);
+}
+
+__kernel void ssandPile_ocl_opt5(__global unsigned *in,
+                                 __global unsigned *out,
+                                 __global int      *changed)
+{
+    #define MARGIN5 6
+    #define TRUE_W5 (TILE_W + 2 * MARGIN5)
+    #define TRUE_H5 (TILE_H + 2 * MARGIN5)
+    #define IN_W5 (TRUE_W5 | 1)  // 45: odd stride, bank-conflict free
+    #define IN_H5 TRUE_H5
+
+    __local unsigned tile0[IN_H5 * IN_W5];
+    __local unsigned tile1[IN_H5 * IN_W5];
+    __local int change_flags5[TILE_W * TILE_H];
+
+    int lx = get_local_id(0), ly = get_local_id(1);
+    int tid = ly * TILE_W + lx;
+    int wg_size = TILE_W * TILE_H;
+    int gx = get_global_id(0), gy = get_global_id(1);
+    int base_gx = get_group_id(0) * TILE_W;
+    int base_gy = get_group_id(1) * TILE_H;
+
+    int total_cells = IN_H5 * IN_W5;
+
+    // 3-pass mapping (44*28=1232 cells, 3*512=1536 >= 1232)
+    int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size;
+    int tx1 = i1 % IN_W5, ty1 = i1 / IN_W5;
+    int tx2 = i2 % IN_W5, ty2 = i2 / IN_W5;
+    int tx3 = i3 % IN_W5, ty3 = i3 / IN_W5;
+
+    // 1. STATIC LOAD (3 passes)
+    tile0[i1] = in[clamp(base_gy - MARGIN5 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx1, 0, DIM - 1)];
+    if (i2 < total_cells)
+        tile0[i2] = in[clamp(base_gy - MARGIN5 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx2, 0, DIM - 1)];
+    if (i3 < total_cells)
+        tile0[i3] = in[clamp(base_gy - MARGIN5 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx3, 0, DIM - 1)];
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Iterations 1 to 5
+    #define PASS_OPT5(step, t_in, t_out) \
+    { \
+        if (tx1 >= step && tx1 < IN_W5 - step && ty1 >= step && ty1 < IN_H5 - step) { \
+            unsigned c = t_in[i1]; \
+            t_out[i1] = (c & 3) + (t_in[i1 - IN_W5] >> 2) + (t_in[i1 + IN_W5] >> 2) + (t_in[i1 - 1] >> 2) + (t_in[i1 + 1] >> 2); \
+        } \
+        if (i2 < total_cells && tx2 >= step && tx2 < IN_W5 - step && ty2 >= step && ty2 < IN_H5 - step) { \
+            unsigned c = t_in[i2]; \
+            t_out[i2] = (c & 3) + (t_in[i2 - IN_W5] >> 2) + (t_in[i2 + IN_W5] >> 2) + (t_in[i2 - 1] >> 2) + (t_in[i2 + 1] >> 2); \
+        } \
+        if (i3 < total_cells && tx3 >= step && tx3 < IN_W5 - step && ty3 >= step && ty3 < IN_H5 - step) { \
+            unsigned c = t_in[i3]; \
+            t_out[i3] = (c & 3) + (t_in[i3 - IN_W5] >> 2) + (t_in[i3 + IN_W5] >> 2) + (t_in[i3 - 1] >> 2) + (t_in[i3 + 1] >> 2); \
+        } \
+        barrier(CLK_LOCAL_MEM_FENCE); \
+    }
+
+    PASS_OPT5(1, tile0, tile1);
+    PASS_OPT5(2, tile1, tile0);
+    PASS_OPT5(3, tile0, tile1);
+    PASS_OPT5(4, tile1, tile0);
+    PASS_OPT5(5, tile0, tile1);
+
+    // Final iteration (exact match for output tile)
+    int i_final = (ly + MARGIN5) * IN_W5 + (lx + MARGIN5);
+    unsigned center = tile1[i_final];
+    unsigned res = (center & 3) + (tile1[i_final - IN_W5] >> 2) + (tile1[i_final + IN_W5] >> 2) + (tile1[i_final - 1] >> 2) + (tile1[i_final + 1] >> 2);
+
+    out[gy * DIM + gx] = (gx > 0 && gx < DIM-1 && gy > 0 && gy < DIM-1) ? res : in[gy * DIM + gx];
+
+    // same reduction pattern as opt4
+    int my_changed = (res != center) && (gx > 0) && (gx < DIM - 1) && (gy > 0) && (gy < DIM - 1);
+    change_flags5[tid] = my_changed;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    for (int stride = wg_size >> 1; stride > 0; stride >>= 1) {
+        if (tid < stride)
+            change_flags5[tid] |= change_flags5[tid + stride];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    if (tid == 0 && change_flags5[0])
+        atomic_or(changed, 1);
 }
 
 #ifdef GL_BUFFER_SHARING
