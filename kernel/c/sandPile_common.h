@@ -66,23 +66,27 @@ void sandPile_debug (int x, int y);
 #define SANDPILE_UNROLL_LOOP(x) _Pragma (SANDPILE_STR (unroll x))
 #endif
 
-#define SANDPILE_BORDER_SELF  (1)
-#define SANDPILE_BORDER_UP    (1 << 1)
-#define SANDPILE_BORDER_DOWN  (1 << 2)
-#define SANDPILE_BORDER_LEFT  (1 << 3)
+#define SANDPILE_BORDER_SELF (1)
+#define SANDPILE_BORDER_UP (1 << 1)
+#define SANDPILE_BORDER_DOWN (1 << 2)
+#define SANDPILE_BORDER_LEFT (1 << 3)
 #define SANDPILE_BORDER_RIGHT (1 << 4)
 
-#define SANDPILE_BORDER_GET_SELF(x)   (((x) & SANDPILE_BORDER_SELF) != 0)
-#define SANDPILE_BORDER_GET_UP(x)     (((x) & SANDPILE_BORDER_UP) != 0)
-#define SANDPILE_BORDER_GET_DOWN(x)   (((x) & SANDPILE_BORDER_DOWN) != 0)
-#define SANDPILE_BORDER_GET_LEFT(x)   (((x) & SANDPILE_BORDER_LEFT) != 0)
-#define SANDPILE_BORDER_GET_RIGHT(x)  (((x) & SANDPILE_BORDER_RIGHT) != 0)
+#define SANDPILE_BORDER_GET_SELF(x) (((x) & SANDPILE_BORDER_SELF) != 0)
+#define SANDPILE_BORDER_GET_UP(x) (((x) & SANDPILE_BORDER_UP) != 0)
+#define SANDPILE_BORDER_GET_DOWN(x) (((x) & SANDPILE_BORDER_DOWN) != 0)
+#define SANDPILE_BORDER_GET_LEFT(x) (((x) & SANDPILE_BORDER_LEFT) != 0)
+#define SANDPILE_BORDER_GET_RIGHT(x) (((x) & SANDPILE_BORDER_RIGHT) != 0)
 
-#define SANDPILE_BORDER_SET_SELF(x)       (SANDPILE_BORDER_SELF   * ((x) != 0))
-#define SANDPILE_BORDER_SET_UP(x, set)    (SANDPILE_BORDER_UP     * ((x) != 0) * ((set) != 0))
-#define SANDPILE_BORDER_SET_DOWN(x, set)  (SANDPILE_BORDER_DOWN   * ((x) != 0) * ((set) != 0))
-#define SANDPILE_BORDER_SET_LEFT(x, set)  (SANDPILE_BORDER_LEFT   * ((x) != 0) * ((set) != 0))
-#define SANDPILE_BORDER_SET_RIGHT(x, set) (SANDPILE_BORDER_RIGHT  * ((x) != 0) * ((set) != 0))
+#define SANDPILE_BORDER_SET_SELF(x) (SANDPILE_BORDER_SELF * ((x) != 0))
+#define SANDPILE_BORDER_SET_UP(x, set)                                         \
+  (SANDPILE_BORDER_UP * ((x) != 0) * ((set) != 0))
+#define SANDPILE_BORDER_SET_DOWN(x, set)                                       \
+  (SANDPILE_BORDER_DOWN * ((x) != 0) * ((set) != 0))
+#define SANDPILE_BORDER_SET_LEFT(x, set)                                       \
+  (SANDPILE_BORDER_LEFT * ((x) != 0) * ((set) != 0))
+#define SANDPILE_BORDER_SET_RIGHT(x, set)                                      \
+  (SANDPILE_BORDER_RIGHT * ((x) != 0) * ((set) != 0))
 
 // =========================================================================
 // LAZY EVALUATION QUADTREE
@@ -194,13 +198,8 @@ typedef uint64_t bitset;
 #define BITSET_SIZE_DIV(x) ((x) >> BITSET_POW)
 #define BITSET_SIZE_MUL(x) ((x) << BITSET_POW)
 
-static inline const int bitset_clz(bitset set) {
-  return __builtin_clzll(set) - (64 - BITSET_SIZE);
-}
-
-static inline const int bitset_count(bitset set) {
-  return __builtin_popcountll(set);
-}
+#define bitset_clz(set) (__builtin_clzll (set) - (64 - BITSET_SIZE))
+#define bitset_count(set) (__builtin_popcountll (set))
 
 static inline const bitset bitset_at (const unsigned at)
 {
@@ -230,7 +229,7 @@ struct _tileset
 
 typedef struct _tileset *restrict tileset_t;
 
-#define tileset_at(tileset, index) ((tileset)->sets[index])
+#define tileset_at(tileset, index) ((tileset)->sets [index])
 
 typedef struct
 {
@@ -244,25 +243,53 @@ extern unsigned SETS_PER_ROW, TILES_PER_ROW, NB_ROWS, TOTAL_NB_SETS;
 
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 void tileset_finalize (tileset_t tileset);
-
-void tileset_mark_at (tileset_t tileset, int change, const tile t);
-
 void tileset_mark_full (tileset_t tileset);
-
-void tileset_mark_empty (tileset_t tileset);
-
 void tileset_trunc (tileset_t tileset);
 
-unsigned long tileset_get_total_tiles (tileset_t tileset);
+static inline void tileset_mark_empty (tileset_t tileset)
+{
+  unsigned total = TOTAL_NB_SETS;
+  for (unsigned i = 0; i < total; i++)
+    tileset_at (tileset, i) = 0;
+}
 
-int tileset_merge (tileset_t tileset, tileset_t *restrict others,
-                   unsigned nb_others);
+static inline unsigned long tileset_get_total_tiles (tileset_t tileset)
+{
+  return TILES_PER_ROW * NB_ROWS;
+}
 
-int tileset_merge_omp (tileset_t tileset, tileset_t *restrict others,
-                       unsigned nb_others);
+static inline int tileset_count (tileset_t tileset)
+{
+  int left = 0;
 
-int tileset_count (tileset_t tileset);
+  for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
+    PER_SET [i] = bitset_count (tileset_at (tileset, i));
+    left |= (PER_SET [i] != 0);
+  }
 
+  return left;
+}
+
+static inline int tileset_merge (tileset_t tile, tileset_t *restrict others,
+                                 unsigned nb_others)
+{
+
+  for (unsigned i = 0; i < nb_others; i++)
+    for (unsigned j = 0; j < TOTAL_NB_SETS; j++)
+      tileset_at (tile, j) |= tileset_at (others [i], j);
+
+  return tileset_count (tile);
+}
+
+static inline void tileset_mark_at (tileset_t tileset, int change, const tile t)
+{
+  unsigned long long tx = t.tx;
+  unsigned long long ty = t.ty;
+  unsigned long index   = ty * SETS_PER_ROW + (BITSET_SIZE_DIV (tx));
+  bitset bit            = bitset_at (BITSET_SIZE_MOD (tx));
+
+  tileset_at (tileset, index) |= bit * change;
+}
 
 #if __AVX2__ == 1
 

@@ -385,16 +385,6 @@ void tileset_finalize (tileset_t tileset)
   ezp_free ((void *)tileset, total_size);
 }
 
-void tileset_mark_at (tileset_t tileset, int change, const tile t)
-{
-  unsigned long long tx = t.tx;
-  unsigned long long ty = t.ty;
-  unsigned long index   = ty * SETS_PER_ROW + (BITSET_SIZE_DIV (tx));
-  bitset bit            = bitset_at (BITSET_SIZE_MOD (tx));
-
-  tileset_at (tileset, index) |= bit * change;
-}
-
 void tileset_mark_full (tileset_t tileset)
 {
   unsigned total = TOTAL_NB_SETS;
@@ -405,34 +395,11 @@ void tileset_mark_full (tileset_t tileset)
   }
 }
 
-void tileset_mark_empty (tileset_t tileset)
-{
-  unsigned total = TOTAL_NB_SETS;
-  for (unsigned i = 0; i < total; i++)
-    tileset_at (tileset, i) = 0;
-}
-
 void tileset_trunc (tileset_t tileset)
 {
   unsigned per_row = SETS_PER_ROW;
   for (unsigned i = per_row - 1; i < TOTAL_NB_SETS; i += per_row)
     tileset_at (tileset, i) &= TRUNC_MASK;
-}
-
-unsigned long tileset_get_total_tiles (tileset_t tileset)
-{
-  return TILES_PER_ROW * NB_ROWS;
-}
-
-int tileset_merge (tileset_t tile, tileset_t *restrict others,
-                   unsigned nb_others)
-{
-
-  for (unsigned i = 0; i < nb_others; i++)
-    for (unsigned j = 0; j < TOTAL_NB_SETS; j++)
-      tileset_at (tile, j) |= tileset_at (others [i], j);
-
-  return tileset_count (tile);
 }
 
 int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
@@ -445,16 +412,4 @@ int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
       tileset_at (tile, j) |= tileset_at (others [i], j);
 
   return tileset_count (tile);
-}
-
-inline int tileset_count (tileset_t tileset)
-{
-  int left = 0;
-
-  for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
-    PER_SET [i] = bitset_count (tileset_at (tileset, i));
-    left |= (PER_SET [i] != 0);
-  }
-
-  return left;
 }
