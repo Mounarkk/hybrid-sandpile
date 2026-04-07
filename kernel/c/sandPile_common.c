@@ -323,8 +323,8 @@ int qt_compute_iteration (qt_tile_fn tile_func)
  * ===== Memory layout configuration =====
  * Those were placed to evaluate how memory layout could affect performance
  */
-#define TILESET_MEM_PADDING 64 /* Padding between the allocated memory */
-#define TILESET_MEM_ALIGN 1    /* Try to align the values of the struct */
+#define TILESET_MEM_PADDING 0 /* Padding between the allocated memory */
+#define TILESET_MEM_ALIGN 1   /* Try to align the values of the struct */
 
 #if TILESET_MEM_ALIGN == 1
 #define TILESET_MEM_ALIGN_TO(addr, align)                                      \
@@ -356,7 +356,7 @@ tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)
   TRUNC_MASK    = ~(mask * (tiles_left != 0));
   TILES_PER_ROW = tiles_per_row;
 
-  int bitset_align    = TILESET_MEM_GET_ALIGN (bitset);
+  int bitset_align    = 32; // TILESET_MEM_GET_ALIGN ();
   unsigned total_size = sizeof (struct _tileset);
   total_size += TILESET_MEM_PADDING;
   total_size += sizeof (bitset) * TOTAL_NB_SETS + bitset_align;
