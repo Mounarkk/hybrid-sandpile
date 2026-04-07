@@ -624,21 +624,24 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
       int is_border_up   = (i == 0);
       int is_border_down = (i == (height - 1));
 
-      down_vec          = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
+      down_vec = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
+
+      __m256i res = _mm256_and_si256 (center_vec, m256_3);
+
+      __m256i tops = _mm256_add_epi32 (_mm256_srli_epi32 (up_vec, 2),
+                                       _mm256_srli_epi32 (down_vec, 2));
+
       __m256i left_vec  = _mm256_loadu_si256 ((__m256i *)(in_cell - 1));
       __m256i right_vec = _mm256_loadu_si256 ((__m256i *)(in_cell + 1));
 
-      __m256i tops  = _mm256_add_epi32 (_mm256_srli_epi32 (up_vec, 2),
-                                        _mm256_srli_epi32 (down_vec, 2));
       __m256i sides = _mm256_add_epi32 (_mm256_srli_epi32 (left_vec, 2),
                                         _mm256_srli_epi32 (right_vec, 2));
-      sides         = _mm256_add_epi32 (tops, sides);
 
-      __m256i res = _mm256_and_si256 (center_vec, m256_3);
-      res         = _mm256_add_epi32 (res, sides);
+      sides = _mm256_add_epi32 (tops, sides);
+      res   = _mm256_add_epi32 (res, sides);
 
-      // res          = _mm256_and_si256(res, mask);
-      _mm256_maskstore_epi32 ((__m256i *)(out_cell), mask, res);
+      res = _mm256_and_si256 (res, mask);
+      _mm256_store_si256 ((__m256i *)(out_cell), res);
 
       __m256 cast              = (__m256)_mm256_cmpeq_epi32 (res, center_vec);
       unsigned char change_vec = ~(unsigned char)_mm256_movemask_ps (cast);
