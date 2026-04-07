@@ -285,22 +285,18 @@ static inline int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
                                  unsigned nb_others)
 {
 
-  unsigned diff = 0;
-  unsigned left = nb_others >> 1;
-  while (left >= 1) {
-  #pragma omp parallel for
-    for (unsigned j = 0; j < left; j++) {
-      for (unsigned k = 0; k < TOTAL_NB_SETS; k++)
-        tileset_at (others[j], k) |= tileset_at (others[left + j], k);
+  int diff;
+  #pragma omp parallel 
+  #pragma omp single
+  #pragma omp taskloop reduction(| : diff) 
+  for (unsigned k = 0; k < TOTAL_NB_SETS; k++) {
+    tileset_at (tile, k) = 0;
 
+    for (unsigned j = 0; j < nb_others; j++) {
+        tileset_at (tile, k) |= tileset_at (others[j], k);
+	diff |= tileset_at (tile, k);
     }
-    left >>= 1;
   }
-
-    for (unsigned k = 0; k < TOTAL_NB_SETS; k++) {
-      tileset_at (tile, k) |= tileset_at (others[0], k);
-      diff |= tileset_at(tile, k) != 0;
-    }
 
   // return tileset_count (tile);
   return diff;
@@ -335,7 +331,6 @@ inline __m256i rotate_left (__m256i v)
 static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
                                  unsigned nb_others)
 {
-  int diff = 0;
 
   for (unsigned i = 0; i < nb_others; i++)
     SANDPILE_UNROLL_LOOP(4)
@@ -347,13 +342,10 @@ static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
 
       __m256i res = _mm256_or_si256(t, other);
 
-      __m256 or = (__m256)_mm256_cmpeq_epi64 (t, res);
      _mm256_store_si256(tile_at, res);
-     diff |= _mm256_movemask_ps(or) ;
     }
 
-  // return tileset_count (tile);
-  return diff;
+  return tileset_count (tile);
 }
 
 #endif

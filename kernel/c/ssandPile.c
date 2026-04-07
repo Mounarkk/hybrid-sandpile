@@ -571,7 +571,10 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
     swap_tables ();
 
-    change = tileset_merge_avx (TILESET, tilesets, num_threads);
+    change = tileset_merge_omp (tilesets[0], tilesets + 1, num_threads - 1);
+    tileset_t tmp = TILESET;
+    TILESET = tilesets[0];
+    tilesets[0] = TILESET;
     if (change == 0)
       break;
   }
@@ -615,6 +618,7 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
     register __m256i center_vec = _mm256_load_si256 ((__m256i *)(in_cell));
     register __m256i down_vec;
 
+    SANDPILE_UNROLL_LOOP(4)
     for (int i = 0; i < height; i++) {
       __builtin_prefetch (in_cell + 2 * DIM - 1, 0, 3);
       __builtin_prefetch (in_cell + 2 * DIM, 0, 3);
