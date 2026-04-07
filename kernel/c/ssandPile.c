@@ -269,8 +269,6 @@ void ssandPile_init_lazy (void)
   PER_SET = ezp_alloc (sizeof (char) * TOTAL_NB_SETS);
   memset (PER_SET, 0, TOTAL_NB_SETS);
 
-  printf ("TOTAL_NB_SETS %d, SETS_PER_ROW %d, \n", TOTAL_NB_SETS, SETS_PER_ROW);
-
   tileset_mark_full (TILESET);
 }
 
@@ -571,10 +569,10 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
     swap_tables ();
 
-    change = tileset_merge_omp (tilesets[0], tilesets + 1, num_threads - 1);
+    change = tileset_merge_avx (tilesets[0], tilesets + 1, num_threads - 1);
     tileset_t tmp = TILESET;
     TILESET = tilesets[0];
-    tilesets[0] = TILESET;
+    tilesets[0] = tmp;
     if (change == 0)
       break;
   }

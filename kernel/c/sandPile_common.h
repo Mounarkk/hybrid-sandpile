@@ -175,21 +175,25 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
 #if BITSET_SIZE == 8
 
 #define BITSET_POW 3
+#define BITSET_AVX_SIZE 32
 typedef uint8_t bitset;
 
 #elif BITSET_SIZE == 16
 
 #define BITSET_POW 4
+#define BITSET_AVX_SIZE 16
 typedef uint16_t bitset;
 
 #elif BITSET_SIZE == 32
 
 #define BITSET_POW 5
+#define BITSET_AVX_SIZE 8
 typedef uint32_t bitset;
 
 #elif BITSET_SIZE == 64
 
 #define BITSET_POW 6
+#define BITSET_AVX_SIZE 4
 typedef uint64_t bitset;
 
 #endif
@@ -285,20 +289,16 @@ static inline int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
                                  unsigned nb_others)
 {
 
-  int diff;
-  #pragma omp parallel 
-  #pragma omp single
-  #pragma omp taskloop reduction(| : diff) 
+  int diff = 0;
+  #pragma omp parallel for reduction(| : diff) 
   for (unsigned k = 0; k < TOTAL_NB_SETS; k++) {
-    tileset_at (tile, k) = 0;
-
     for (unsigned j = 0; j < nb_others; j++) {
         tileset_at (tile, k) |= tileset_at (others[j], k);
 	diff |= tileset_at (tile, k);
     }
   }
 
-  // return tileset_count (tile);
+  //return tileset_count (tile);
   return diff;
 }
 
@@ -334,7 +334,7 @@ static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
 
   for (unsigned i = 0; i < nb_others; i++)
     SANDPILE_UNROLL_LOOP(4)
-    for (unsigned j = 0; j < TOTAL_NB_SETS; j += AVX_VEC_SIZE_DOUBLE) {
+    for (unsigned j = 0; j < TOTAL_NB_SETS; j += BITSET_AVX_SIZE ) {
       __m256i * tile_at = (__m256i * )(&tileset_at(tile, j));
 
       __m256i t = _mm256_load_si256(tile_at);
