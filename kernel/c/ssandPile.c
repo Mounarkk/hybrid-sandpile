@@ -500,7 +500,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
 
     swap_tables ();
 
-    change = tileset_merge_omp (TILESET, tilesets, num_threads);
+    change = tileset_merge (TILESET, tilesets, num_threads);
     if (change == 0)
       return it;
   }
@@ -522,12 +522,11 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
       tileset_mark_empty (curr);
 #pragma omp for schedule(static)
       for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
-        unsigned char in_set = PER_SET [i];
-        unsigned tile_y      = i / SETS_PER_ROW;
-        unsigned set_x       = i - tile_y * SETS_PER_ROW;
-        bitset set           = sets [i];
+        unsigned tile_y = i / SETS_PER_ROW;
+        unsigned set_x  = i - tile_y * SETS_PER_ROW;
+        bitset set      = sets [i];
 
-        for (unsigned char k = 0; k < in_set; k++) {
+        while (set != 0) {
           unsigned pos = bitset_clz (set);
           set -= bitset_at (pos);
 
@@ -572,7 +571,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
     swap_tables ();
 
-    change = tileset_merge (TILESET, tilesets, num_threads);
+    change = tileset_merge_omp (TILESET, tilesets, num_threads);
     if (change == 0)
       break;
   }
