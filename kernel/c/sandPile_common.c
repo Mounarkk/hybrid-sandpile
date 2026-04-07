@@ -401,15 +401,3 @@ void tileset_trunc (tileset_t tileset)
   for (unsigned i = per_row - 1; i < TOTAL_NB_SETS; i += per_row)
     tileset_at (tileset, i) &= TRUNC_MASK;
 }
-
-int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
-                       unsigned nb_others)
-{
-
-#pragma omp parallel for schedule(static) shared(others)
-  for (unsigned j = 0; j < TOTAL_NB_SETS; j++)
-    for (unsigned i = 0; i < nb_others; i++)
-      tileset_at (tile, j) |= tileset_at (others [i], j);
-
-  return tileset_count (tile);
-}

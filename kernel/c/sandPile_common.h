@@ -281,6 +281,28 @@ static inline int tileset_merge (tileset_t tile, tileset_t *restrict others,
   return tileset_count (tile);
 }
 
+static inline int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
+                                 unsigned nb_others)
+{
+
+  unsigned left = nb_others >> 1;
+  while (left > 1) {
+  #pragma omp parallel for
+    for (unsigned j = 0; j < left; j++) {
+      for (unsigned k = 0; k < TOTAL_NB_SETS; k++)
+        tileset_at (others[j], k) |= tileset_at (others[left + j], k);
+
+    left >>= 1;
+    }
+
+    for (unsigned k = 0; k < TOTAL_NB_SETS; k++)
+      tileset_at (tile, k) |= tileset_at (others[0], k);
+
+  }
+
+  return tileset_count (tile);
+}
+
 static inline void tileset_mark_at (tileset_t tileset, int change, const tile t)
 {
   unsigned long long tx = t.tx;

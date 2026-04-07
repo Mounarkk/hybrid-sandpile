@@ -500,7 +500,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
 
     swap_tables ();
 
-    change = tileset_merge (TILESET, tilesets, num_threads);
+    change = tileset_merge_omp (TILESET, tilesets, num_threads);
     if (change == 0)
       return it;
   }
