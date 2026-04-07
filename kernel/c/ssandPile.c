@@ -792,7 +792,7 @@ unsigned ssandPile_compute_ocl_opt4 (unsigned nb_iter)
     check (err, "Failed to set kernel args 0-1");
 
     for (unsigned k = 0; k < max_k; k++) {
-      total_it += 5; 
+      total_it += 5;
 
       err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
                                     NULL, global, local, 0, NULL, NULL);
@@ -841,7 +841,7 @@ unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
   size_t local [2]  = {TILE_W, TILE_H};
   cl_int err;
 
-  const unsigned BATCH_SIZE = 510; // Multiple of 6 rounded down: 510/6=85
+  const unsigned BATCH_SIZE = 510;
   const int zero            = 0;
 
   err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
@@ -878,8 +878,8 @@ unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
       ocl_cur_buffer (0)  = ocl_next_buffer (0);
       ocl_next_buffer (0) = tmp;
 
-      err  = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
-                             &ocl_cur_buffer (0));
+      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                            &ocl_cur_buffer (0));
       err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
                              &ocl_next_buffer (0));
     }
