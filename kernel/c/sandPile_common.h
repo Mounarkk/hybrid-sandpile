@@ -332,6 +332,26 @@ inline __m256i rotate_left (__m256i v)
   return _mm256_permutevar8x32_epi32 (v, scheme);
 }
 
+static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
+                                 unsigned nb_others)
+{
+  __m256i ZERO = _mm256_setzero_si256();
+  int diff = 0;
+
+  for (unsigned i = 0; i < nb_others; i++)
+    SANDPILE_UNROLL_LOOP(4)
+    for (unsigned j = 0; j < TOTAL_NB_SETS; j += AVX_VEC_SIZE_DOUBLE) {
+      __m256i t = _mm256_loadu_si256((__m256i * )(&tileset_at(tile, j)));
+      __m256i other = _mm256_loadu_si256((__m256i * )(&tileset_at(others[i], j)));
+
+     _mm256_storeu_si256(((__m256i * )(&tileset_at(tile, j))), _mm256_or_si256(t, other));
+     diff |= _mm256_movemask_ps((__m256)_mm256_cmpeq_epi32 (t, ZERO));
+    }
+
+  // return tileset_count (tile);
+  return diff;
+}
+
 #endif
 
 #endif // SANDPILE_COMMON_H
