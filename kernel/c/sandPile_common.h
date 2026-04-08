@@ -290,7 +290,7 @@ static inline int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
 {
 
   int diff = 0;
-  #pragma omp parallel for reduction(| : diff) 
+  #pragma omp parallel for reduction(| : diff)
   for (unsigned k = 0; k < TOTAL_NB_SETS; k++) {
     for (unsigned j = 0; j < nb_others; j++) {
         tileset_at (tile, k) |= tileset_at (others[j], k);
