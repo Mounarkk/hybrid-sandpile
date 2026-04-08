@@ -830,65 +830,68 @@ void ssandPile_refresh_img_ocl_opt4 (void)
   ssandPile_refresh_img_ocl ();
 }
 
+static cl_kernel k_opt5  = NULL;
+static cl_kernel k_opt4  = NULL;
+static cl_kernel k_opt3  = NULL;
+static cl_kernel k_naive = NULL;
+
 void ssandPile_init_ocl_opt5 (void)
 {
   ssandPile_init_ocl ();
+
+  cl_int err;
+  k_opt5 = clCreateKernel (program, "ssandPile_ocl_opt5", &err);
+  check (err, "Failed to create k_opt5");
+
+  k_opt4 = clCreateKernel (program, "ssandPile_ocl_opt4", &err);
+  check (err, "Failed to create k_opt4");
+
+  k_opt3 = clCreateKernel (program, "ssandPile_ocl_opt3", &err);
+  check (err, "Failed to create k_opt3");
+
+  k_naive = clCreateKernel (program, "ssandPile_ocl", &err);
+  check (err, "Failed to create k_naive");
 }
 
 unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
 {
   size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
-  size_t local [2]  = {TILE_W, TILE_H};
+  size_t local [2]  = {32, 16}; // Forced 32x16 to match kernel assumptions
   cl_int err;
 
   const unsigned BATCH_SIZE = 510;
   const int zero            = 0;
 
-  err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
-                        &ocl_changed_buffer);
-  check (err, "Failed to set kernel arg 2 (opt5)");
-
   unsigned total_it = 0;
   monitoring_start (easypap_gpu_lane (0));
 
-  for (unsigned it = 1; it <= nb_iter; it += BATCH_SIZE) {
+  // 1. MAIN PASS
+  unsigned full_batches = nb_iter / 6;
+  for (unsigned b = 0; b < full_batches;) {
     err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
                                sizeof (int), 0, sizeof (int), 0, NULL, NULL);
 
-    unsigned remaining = nb_iter - it + 1;
-    unsigned max_k     = (remaining + 5) / 6;
-    if (max_k > (BATCH_SIZE / 6))
-      max_k = BATCH_SIZE / 6;
-    if (max_k == 0)
-      break;
-
-    err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
-                          &ocl_cur_buffer (0));
-    err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
-                           &ocl_next_buffer (0));
-    check (err, "Failed to set kernel args 0-1 (opt5)");
+    unsigned max_k =
+        (full_batches - b > BATCH_SIZE / 6) ? BATCH_SIZE / 6 : full_batches - b;
 
     for (unsigned k = 0; k < max_k; k++) {
+      err = clSetKernelArg (k_opt5, 0, sizeof (cl_mem), &ocl_cur_buffer (0));
+      err |= clSetKernelArg (k_opt5, 1, sizeof (cl_mem), &ocl_next_buffer (0));
+      err |= clSetKernelArg (k_opt5, 2, sizeof (cl_mem), &ocl_changed_buffer);
+      check (err, "Failed to set opt5 args");
+
+      err = clEnqueueNDRangeKernel (ocl_queue (0), k_opt5, 2, NULL, global,
+                                    local, 0, NULL, NULL);
       total_it += 6;
-
-      err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
-                                    NULL, global, local, 0, NULL, NULL);
-
       cl_mem tmp          = ocl_cur_buffer (0);
       ocl_cur_buffer (0)  = ocl_next_buffer (0);
       ocl_next_buffer (0) = tmp;
-
-      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
-                            &ocl_cur_buffer (0));
-      err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
-                             &ocl_next_buffer (0));
     }
+    b += max_k;
 
     int changed;
-    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
-                               sizeof (int), &changed, 0, NULL, NULL);
-    check (err, "Failed to read changed flag (opt5)");
-
+    clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                         sizeof (int), &changed, 0, NULL, NULL);
     if (changed == 0) {
       clFinish (ocl_queue (0));
       monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
@@ -896,9 +899,44 @@ unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
     }
   }
 
+  // 2. TAIL PASS, handle the remainder
+  unsigned remainder = nb_iter - total_it;
+  if (remainder > 0) {
+    cl_kernel tail_k = NULL;
+    unsigned steps   = 0;
+
+    if (remainder == 5) {
+      tail_k = k_opt4;
+      steps  = 5;
+    } else if (remainder == 4) {
+      tail_k = k_opt3;
+      steps  = 4;
+    } else {
+      // Remainder 1, 2, or 3
+      tail_k = k_naive;
+      steps  = 1;
+    }
+
+    unsigned tail_launches = (steps == 1) ? remainder : 1;
+
+    for (unsigned l = 0; l < tail_launches; l++) {
+      err = clSetKernelArg (tail_k, 0, sizeof (cl_mem), &ocl_cur_buffer (0));
+      err |= clSetKernelArg (tail_k, 1, sizeof (cl_mem), &ocl_next_buffer (0));
+      err |= clSetKernelArg (tail_k, 2, sizeof (cl_mem), &ocl_changed_buffer);
+      check (err, "Failed to set tail kernel args");
+
+      err = clEnqueueNDRangeKernel (ocl_queue (0), tail_k, 2, NULL, global,
+                                    local, 0, NULL, NULL);
+      total_it += steps;
+      cl_mem tmp          = ocl_cur_buffer (0);
+      ocl_cur_buffer (0)  = ocl_next_buffer (0);
+      ocl_next_buffer (0) = tmp;
+    }
+  }
+
   clFinish (ocl_queue (0));
   monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
-  return 0;
+  return total_it;
 }
 
 void ssandPile_refresh_img_ocl_opt5 (void)

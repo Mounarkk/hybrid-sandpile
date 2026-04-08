@@ -181,7 +181,7 @@ __kernel void ssandPile_ocl_opt4(__global unsigned *in,
     __local unsigned tile0[IN_H4 * IN_W4];
     __local unsigned tile1[IN_H4 * IN_W4];
     __local int local_changed;
-
+    
     int lx = get_local_id(0), ly = get_local_id(1);
     int tid = ly * TILE_W + lx;
     int wg_size = TILE_W * TILE_H;
@@ -200,11 +200,13 @@ __kernel void ssandPile_ocl_opt4(__global unsigned *in,
     int tx3 = i3 % IN_W4, ty3 = i3 / IN_W4;
 
     // 1. STATIC LOAD (3 passes)
-    tile0[i1] = in[clamp(base_gy - MARGIN4 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx1, 0, DIM - 1)];
-    if (i2 < total_cells)
-        tile0[i2] = in[clamp(base_gy - MARGIN4 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx2, 0, DIM - 1)];
-    if (i3 < total_cells)
-        tile0[i3] = in[clamp(base_gy - MARGIN4 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx3, 0, DIM - 1)];
+    {
+        tile0[i1] = in[clamp(base_gy - MARGIN4 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx1, 0, DIM - 1)];
+        if (i2 < total_cells) 
+            tile0[i2] = in[clamp(base_gy - MARGIN4 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx2, 0, DIM - 1)];
+        if (i3 < total_cells) 
+            tile0[i3] = in[clamp(base_gy - MARGIN4 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN4 + tx3, 0, DIM - 1)];
+    }
     barrier(CLK_LOCAL_MEM_FENCE);
 
     // Iterations 1 to 4
@@ -234,7 +236,7 @@ __kernel void ssandPile_ocl_opt4(__global unsigned *in,
     int i_final = (ly + MARGIN4) * IN_W4 + (lx + MARGIN4);
     unsigned center = tile0[i_final];
     unsigned res = (center & 3) + (tile0[i_final - IN_W4] >> 2) + (tile0[i_final + IN_W4] >> 2) + (tile0[i_final - 1] >> 2) + (tile0[i_final + 1] >> 2);
-
+    
     if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
         out[gy * DIM + gx] = res;
         if (res != center) atomic_or(&local_changed, 1);
