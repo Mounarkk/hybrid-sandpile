@@ -277,18 +277,26 @@ void ssandPile_init_lazy_border (void)
   ssandPile_init_lazy ();
 }
 
+int LAZY_NB_TILESET;
+
 void ssandPile_init_omp_lazy (void)
 {
   ssandPile_init_lazy ();
 
-  tilesets = malloc (sizeof (tileset_t *) * num_threads);
-  for (unsigned i = 0; i < num_threads; i++)
+  LAZY_NB_TILESET = num_threads;
+  tilesets        = malloc (sizeof (tileset_t *) * LAZY_NB_TILESET);
+  for (unsigned i = 0; i < LAZY_NB_TILESET; i++)
     tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
 }
 
 void ssandPile_init_omp_lazy_border (void)
 {
-  ssandPile_init_omp_lazy ();
+  ssandPile_init_lazy ();
+
+  LAZY_NB_TILESET = 5;
+  tilesets        = malloc (sizeof (tileset_t *) * LAZY_NB_TILESET);
+  for (unsigned i = 0; i < LAZY_NB_TILESET; i++)
+    tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
 }
 
 void ssandPile_finalize_lazy (void)
@@ -498,7 +506,7 @@ unsigned ssandPile_compute_omp_lazy (unsigned nb_iter)
 
     swap_tables ();
 
-    change = tileset_merge (TILESET, tilesets, num_threads);
+    change = tileset_merge (TILESET, tilesets, LAZY_NB_TILESET);
     if (change == 0)
       return it;
   }
@@ -516,8 +524,9 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
 #pragma omp parallel
     {
-      tileset_t curr = tilesets [omp_get_thread_num ()];
-      tileset_mark_empty (curr);
+      int thread = omp_get_thread_num ();
+      // tileset_t curr = tilesets [omp_get_thread_num ()];
+      // tileset_mark_empty (curr);
 #pragma omp for schedule(static)
       for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
         unsigned tile_y = i / SETS_PER_ROW;
@@ -556,20 +565,36 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           int mark_left  = SANDPILE_BORDER_GET_LEFT (loc_change);
           int mark_right = SANDPILE_BORDER_GET_RIGHT (loc_change);
 
-          tileset_mark_at (curr, mark_self, self);
-          tileset_mark_at (curr, mark_up, up);
-          tileset_mark_at (curr, mark_down, down);
-          tileset_mark_at (curr, mark_left, left);
-          tileset_mark_at (curr, mark_right, right);
+          int current_cell_set = BITSET_SIZE_DIV (self.tx);
+          int left_cell_is_same_set =
+              BITSET_SIZE_DIV (left.tx) == current_cell_set;
+          int right_cell_is_same_set =
+              BITSET_SIZE_DIV (left.ty) == current_cell_set;
+
+          tileset_mark_at (tilesets [0], mark_self, self);
+          tileset_mark_at (tilesets [1 * !y_0], mark_up, up);
+          tileset_mark_at (tilesets [2 * !y_end], mark_down, down);
+          tileset_mark_at (tilesets [3 * !(x_0 & left_cell_is_same_set)],
+                           mark_left, left);
+          tileset_mark_at (tilesets [4 * !(x_end & right_cell_is_same_set)],
+                           mark_right, right);
         }
 
         sets [i] = 0;
       }
+
+      if (thread == 0)
+        change = TILESET_MERGE (tilesets [1], tilesets + 2, 1);
+
+      if (thread == 1)
+        change = TILESET_MERGE (tilesets [3], tilesets + 4, 1);
     }
 
     swap_tables ();
 
-    change = tileset_merge_avx (tilesets [0], tilesets + 1, num_threads - 1);
+    change = TILESET_MERGE (tilesets [1], tilesets + 3, 1);
+    change = TILESET_MERGE (tilesets [0], tilesets + 1, 1);
+
     tileset_t tmp = TILESET;
     TILESET       = tilesets [0];
     tilesets [0]  = tmp;
@@ -592,10 +617,9 @@ void ssandpile_tile_check_opt_avx (void)
 
 int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
 {
-  const __m256i m256_3    = _mm256_set1_epi32 (3);
-  const __m256i MASK_ZERO = _mm256_setzero_si256 ();
-  const int offset        = -(height * DIM) + AVX_VEC_SIZE_INT;
-  int diff                = 0;
+  const __m256i m256_3 = _mm256_set1_epi32 (3);
+  const int offset     = -(height * DIM) + AVX_VEC_SIZE_INT;
+  int diff             = 0;
 
   int left_tile  = x == 1;
   int right_tile = x + width == DIM - 1;
@@ -744,7 +768,6 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
   TYPE *restrict out_cell  = table_cell (TABLE, out, y, x);
   const __m256i MASK_ZERO  = _mm256_set1_epi32 (0);
   const __m256i MASK_MOD_4 = _mm256_set1_epi32 (3);
-  // const __m256i MASK_PERMUTE = _mm256_setr_epi32 (7, 0, 0, 4, 3, 0, 0, 0);
 
   for (int i = 0; i < height; i++) {
     int is_border_up   = (i == 0);
@@ -754,8 +777,7 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
     TYPE *restrict center_row = in_cell;
     TYPE *restrict down_row   = in_cell + DIM;
 
-    __m256i left_vec, center_vec, right_vec;
-    left_vec   = _mm256_set1_epi32 (*(center_row - 1));
+    __m256i center_vec;
     center_vec = _mm256_load_si256 ((__m256i *)center_row);
 
     for (int j = 0; j < width; j += AVX_VEC_SIZE_INT) {
@@ -766,34 +788,11 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
 
       __m256i up_vec   = _mm256_load_si256 ((__m256i *)(up_row + j));
       __m256i down_vec = _mm256_load_si256 ((__m256i *)(down_row + j));
-      right_vec =
-          _mm256_load_si256 ((__m256i *)(center_row + j + AVX_VEC_SIZE_INT));
 
       __m256i left_added_vec =
           _mm256_loadu_si256 ((__m256i *)(center_row + j + 1));
       __m256i right_added_vec =
           _mm256_loadu_si256 ((__m256i *)(center_row + j - 1));
-
-      //__m256i cross_vec = _mm256_blend_epi32 (center_vec, left_vec,
-      // 0b10000000); cross_vec         = _mm256_blend_epi32 (cross_vec,
-      // right_vec, 0b00000001);
-
-      //__m256i vec_crossed =
-      //    _mm256_permutevar8x32_epi32 (cross_vec, MASK_PERMUTE);
-
-      //__m256i right_added_vec = _mm256_blend_epi32 (
-      //    _mm256_bsrli_epi128 (center_vec, sizeof (unsigned int)),
-      //    vec_crossed, 0b10001000);
-
-      //__m256i left_added_vec = _mm256_blend_epi32 (
-      //   _mm256_bslli_epi128 (center_vec, sizeof (unsigned int)), vec_crossed,
-      //    0b00010001);
-
-      // __m256i res = _mm256_and_si256 (center_vec, MASK_MOD_4);
-      // res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_added_vec, 2));
-      // res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_added_vec, 2));
-      // res = _mm256_add_epi32 (res, _mm256_srli_epi32 (up_vec, 2));
-      // res = _mm256_add_epi32 (res, _mm256_srli_epi32 (down_vec, 2));
 
       __m256i res = _mm256_add_epi32 (_mm256_srli_epi32 (left_added_vec, 2),
                                       _mm256_srli_epi32 (right_added_vec, 2));
@@ -822,9 +821,6 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
           SANDPILE_BORDER_SET_RIGHT (change_right, is_border_right);
 
       diff |= self_flag | up_flag | down_flag | left_flag | right_flag;
-
-      left_vec   = center_vec;
-      center_vec = right_vec;
     }
 
     in_cell += DIM;
@@ -863,13 +859,11 @@ int ssandPile_do_tile_avx_default (int x, int y, int width, int height)
       __m256i right_div_vec = _mm256_blend_epi32 (
           rotate_left (center_vec), rotate_left (right_vec), 1 << 7);
 
-      // __m256i right_div_vec = _mm256_loadu_si256 ((__m256i *)(in_cell + 1));
       res = _mm256_add_epi32 (res, _mm256_srli_epi32 (right_div_vec, 2));
 
       __m256i left_div_vec = _mm256_blend_epi32 (rotate_right (center_vec),
                                                  rotate_right (left_vec), 1);
 
-      // __m256i left_div_vec = _mm256_loadu_si256 ((__m256i *)(in_cell - 1));
       res = _mm256_add_epi32 (res, _mm256_srli_epi32 (left_div_vec, 2));
 
       __m256i up_vec = _mm256_load_si256 ((__m256i *)(in_cell - DIM));
