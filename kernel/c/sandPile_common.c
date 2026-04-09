@@ -345,6 +345,10 @@ char *restrict PER_SET = NULL;
 bitset TRUNC_MASK;
 unsigned SETS_PER_ROW, TILES_PER_ROW, NB_ROWS, TOTAL_NB_SETS;
 
+tileset_t *tilesets;
+int LAZY_NB_TILESET;
+int num_threads;
+
 /* ===== Tileset functions ===== */
 
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows)

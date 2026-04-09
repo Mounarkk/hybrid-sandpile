@@ -257,6 +257,11 @@ extern char *restrict PER_SET;
 extern bitset TRUNC_MASK;
 extern unsigned SETS_PER_ROW, TILES_PER_ROW, NB_ROWS, TOTAL_NB_SETS;
 
+extern tileset_t *tilesets;
+extern int LAZY_NB_TILESET;
+extern int num_threads;
+
+
 tileset_t tileset_init (const unsigned tiles_per_row, const unsigned nb_rows);
 void tileset_finalize (tileset_t tileset);
 void tileset_mark_full (tileset_t tileset);
@@ -313,13 +318,13 @@ static inline void tileset_mark_at (tileset_t tileset, int change, const tile t)
 
 #include <immintrin.h>
 
-inline __m256i rotate_right (__m256i v)
+static inline __m256i rotate_right (__m256i v)
 {
   const __m256i scheme = _mm256_setr_epi32 (7, 0, 1, 2, 3, 4, 5, 6);
   return _mm256_permutevar8x32_epi32 (v, scheme);
 }
 
-inline __m256i rotate_left (__m256i v)
+static inline __m256i rotate_left (__m256i v)
 {
   const __m256i scheme = _mm256_setr_epi32 (1, 2, 3, 4, 5, 6, 7, 0);
   return _mm256_permutevar8x32_epi32 (v, scheme);
