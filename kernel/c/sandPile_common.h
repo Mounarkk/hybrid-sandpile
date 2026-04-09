@@ -329,21 +329,28 @@ static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
                                      unsigned nb_others)
 {
 
-  for (unsigned i = 0; i < nb_others; i++)
-    SANDPILE_UNROLL_LOOP (4)
+  __m256i VEC_ZERO = _mm256_setzero_si256();
+  int diff = 0;
+
   for (unsigned j = 0; j < TOTAL_NB_SETS; j += BITSET_AVX_SIZE) {
     __m256i *tile_at = (__m256i *)(&tileset_at (tile, j));
-
     __m256i t = _mm256_load_si256 (tile_at);
-    __m256i other =
-        _mm256_load_si256 ((__m256i *)(&tileset_at (others [i], j)));
 
-    __m256i res = _mm256_or_si256 (t, other);
+    SANDPILE_UNROLL_LOOP (4)
+    for (unsigned i = 0; i < nb_others; i++) {
+      __m256i other =
+          _mm256_load_si256 ((__m256i *)(&tileset_at (others [i], j)));
+      t = _mm256_or_si256 (t, other);
+    }
 
-    _mm256_store_si256 (tile_at, res);
+    __m256 cast              = (__m256)_mm256_cmpeq_epi32 (t, VEC_ZERO);
+    _mm256_store_si256 (tile_at, t);
+
+    unsigned char change_vec = ~(unsigned char)_mm256_movemask_ps (cast);
+    diff |= change_vec != 0;
   }
 
-  return tileset_count (tile);
+  return diff;
 }
 
 #endif
