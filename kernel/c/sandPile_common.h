@@ -292,28 +292,15 @@ static inline int tileset_merge (tileset_t tile, tileset_t *restrict others,
 {
 
   for (unsigned i = 0; i < nb_others; i++)
-    for (unsigned j = 0; j < TOTAL_NB_SETS; j++)
+    for (unsigned j = 0; j < TOTAL_NB_SETS; j++) {
       tileset_at (tile, j) |= tileset_at (others [i], j);
+      tileset_at (others [i], j) = 0;
+    }
 
   return tileset_count (tile);
 }
 
-static inline int tileset_merge_omp (tileset_t tile, tileset_t *restrict others,
-                                 unsigned nb_others)
-{
 
-  int diff = 0;
-  #pragma omp parallel for reduction(| : diff)
-  for (unsigned k = 0; k < TOTAL_NB_SETS; k++) {
-    for (unsigned j = 0; j < nb_others; j++) {
-        tileset_at (tile, k) |= tileset_at (others[j], k);
-	diff |= tileset_at (tile, k);
-    }
-  }
-
-  //return tileset_count (tile);
-  return diff;
-}
 
 static inline void tileset_mark_at (tileset_t tileset, int change, const tile t)
 {
@@ -366,8 +353,8 @@ static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
     }
   }
 
-  return diff;
-  // return tileset_count (tile);
+  // return diff;
+  return tileset_count (tile);
 }
 #endif
 
