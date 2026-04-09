@@ -714,13 +714,8 @@ int ssandPile_do_tile_opt_avx_default (int x, int y, int width, int height)
       unsigned char change_vec = ~(unsigned char)_mm256_movemask_ps (cast);
 
       int self_flag = SANDPILE_BORDER_SET_SELF (change_vec != 0);
-      // int up_flag   = SANDPILE_BORDER_SET_UP (self_flag, is_border_up);
-      // int down_flag = SANDPILE_BORDER_SET_DOWN (self_flag, is_border_down);
-      // int left_flag = SANDPILE_BORDER_SET_LEFT (change_left, is_border_left);
-      // int right_flag =
-      //     SANDPILE_BORDER_SET_RIGHT (change_right, is_border_right);
 
-      diff |= self_flag; //| up_flag | down_flag | left_flag | right_flag;
+      diff |= self_flag; 
 
       in_cell += DIM;
       out_cell += DIM;

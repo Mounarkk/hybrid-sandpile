@@ -232,7 +232,7 @@ void qt_mark_one_dirty_nxt (int tx, int ty)
 
   int l            = leaf_level - 1;
   int left_to_mark = 1;
-  while ((l >= 0) & left_to_mark) {
+  while ((l >= 0) && left_to_mark) {
     cx >>= 1;
     cy >>= 1;
     int idx      = qt_node_index (l, cy, cx);
