@@ -229,13 +229,17 @@ void qt_mark_one_dirty_nxt (int tx, int ty)
   lazy_qt.nxt [qt_node_index (leaf_level, ty, tx)] = QT_DIRTY;
 
   int cx = tx, cy = ty;
-  for (int l = leaf_level - 1; l >= 0; l--) {
+
+  int l            = leaf_level - 1;
+  int left_to_mark = 1;
+  while ((l >= 0) & left_to_mark) {
     cx >>= 1;
     cy >>= 1;
-    int idx = qt_node_index (l, cy, cx);
-    if (lazy_qt.nxt [idx] == QT_DIRTY)
-      break; // parent already dirty, ancestors are too
+    int idx      = qt_node_index (l, cy, cx);
+    left_to_mark = lazy_qt.nxt [idx] != QT_DIRTY;
+
     lazy_qt.nxt [idx] = QT_DIRTY;
+    l--;
   }
 }
 
