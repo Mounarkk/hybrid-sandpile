@@ -170,7 +170,7 @@ static inline int qt_is_leaf_dirty (int tx, int ty)
  * =========================================================================
  */
 
-#define BITSET_SIZE 32
+#define BITSET_SIZE 64
 
 #if BITSET_SIZE == 8
 
@@ -228,16 +228,15 @@ static inline void bitset_print (const bitset bitset)
 
 #if __AVX2__ == 1
 
-#define TILESET_MERGE(SET, OTHERS, NB_OTHERS) \
+#define TILESET_MERGE(SET, OTHERS, NB_OTHERS)                                  \
   tileset_merge_avx (SET, OTHERS, NB_OTHERS)
 
 #else
 
-#define TILESET_MERGE(SET, OTHERS, NB_OTHERS) \
-  tileset_merge(SET, OTHERS, NB_OTHERS)
+#define TILESET_MERGE(SET, OTHERS, NB_OTHERS)                                  \
+  tileset_merge (SET, OTHERS, NB_OTHERS)
 
 #endif
-
 
 struct _tileset
 {
@@ -300,8 +299,6 @@ static inline int tileset_merge (tileset_t tile, tileset_t *restrict others,
   return tileset_count (tile);
 }
 
-
-
 static inline void tileset_mark_at (tileset_t tileset, int change, const tile t)
 {
   unsigned long long tx = t.tx;
@@ -329,34 +326,26 @@ inline __m256i rotate_left (__m256i v)
 }
 
 static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
-                                 unsigned nb_others)
+                                     unsigned nb_others)
 {
-  __m256i VEC_ZERO = _mm256_setzero_si256();
-  int diff = 0;
 
-  for (unsigned i = 0; i < nb_others; i++){
-    SANDPILE_UNROLL_LOOP(4)
-    for (unsigned j = 0; j < TOTAL_NB_SETS; j += BITSET_AVX_SIZE ) {
-      __m256i * tile_at = (__m256i * )(&tileset_at(tile, j));
+  for (unsigned i = 0; i < nb_others; i++)
+    SANDPILE_UNROLL_LOOP (4)
+  for (unsigned j = 0; j < TOTAL_NB_SETS; j += BITSET_AVX_SIZE) {
+    __m256i *tile_at = (__m256i *)(&tileset_at (tile, j));
 
-      __m256i t = _mm256_load_si256(tile_at);
-      __m256i other = _mm256_load_si256((__m256i * )(&tileset_at(others[i], j)));
+    __m256i t = _mm256_load_si256 (tile_at);
+    __m256i other =
+        _mm256_load_si256 ((__m256i *)(&tileset_at (others [i], j)));
 
-      _mm256_store_si256((__m256i * )(&tileset_at(others[i], j)), VEC_ZERO);
-      __m256i res = _mm256_or_si256(t, other);
+    __m256i res = _mm256_or_si256 (t, other);
 
-     _mm256_store_si256(tile_at, res);
-      __m256 cast              = (__m256)_mm256_cmpeq_epi32 (res, t);
-      unsigned char change_vec = ~(unsigned char)_mm256_movemask_ps (cast);
-
-      diff |= change_vec != 0;
-    }
+    _mm256_store_si256 (tile_at, res);
   }
 
-  // return diff;
   return tileset_count (tile);
 }
-#endif
 
+#endif
 
 #endif // SANDPILE_COMMON_H

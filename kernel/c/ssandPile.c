@@ -291,14 +291,7 @@ void ssandPile_init_omp_lazy (void)
 
 void ssandPile_init_omp_lazy_border (void)
 {
-  ssandPile_init_lazy ();
-
-  LAZY_NB_TILESET = 5;
-  tilesets        = malloc (sizeof (tileset_t *) * LAZY_NB_TILESET);
-  for (unsigned i = 0; i < LAZY_NB_TILESET; i++) {
-    tilesets [i] = tileset_init (NB_TILES_X, NB_TILES_Y);
-    tileset_mark_empty (tilesets [i]);
-  }
+  ssandPile_init_omp_lazy ();
 }
 
 void ssandPile_finalize_lazy (void)
@@ -526,14 +519,14 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
 #pragma omp parallel
     {
-      int thread = omp_get_thread_num ();
-      // tileset_t curr = tilesets [omp_get_thread_num ()];
-      // tileset_mark_empty (curr);
+      tileset_t curr = tilesets [omp_get_thread_num ()];
+      tileset_mark_empty (curr);
 #pragma omp for schedule(static)
       for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
         unsigned tile_y = i / SETS_PER_ROW;
         unsigned set_x  = i - tile_y * SETS_PER_ROW;
-        bitset set      = sets [i];
+        // unsigned set_start = BITSET_SIZE_MUL (set_x);
+        bitset set = sets [i];
 
         while (set != 0) {
           unsigned pos = bitset_clz (set);
@@ -547,11 +540,10 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           x = t.tx * TILE_W;
           y = t.ty * TILE_H;
 
-          int y_0   = (y == 0);
-          int x_0   = (x == 0);
-          int y_end = (y + TILE_H == DIM);
-          int x_end = (x + TILE_W == DIM);
-
+          int y_0        = (y == 0);
+          int x_0        = (x == 0);
+          int y_end      = (y + TILE_H == DIM);
+          int x_end      = (x + TILE_W == DIM);
           int loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
                                     TILE_H - y_end - y_0);
 
@@ -561,64 +553,28 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
           tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
-          int mark_self  = SANDPILE_BORDER_GET_SELF (loc_change);
-          int mark_up    = SANDPILE_BORDER_GET_UP (loc_change);
-          int mark_down  = SANDPILE_BORDER_GET_DOWN (loc_change);
-          int mark_left  = SANDPILE_BORDER_GET_LEFT (loc_change);
-          int mark_right = SANDPILE_BORDER_GET_RIGHT (loc_change);
+          {
+            int mark_self  = SANDPILE_BORDER_GET_SELF (loc_change);
+            int mark_up    = SANDPILE_BORDER_GET_UP (loc_change);
+            int mark_down  = SANDPILE_BORDER_GET_DOWN (loc_change);
+            int mark_left  = SANDPILE_BORDER_GET_LEFT (loc_change);
+            int mark_right = SANDPILE_BORDER_GET_RIGHT (loc_change);
 
-          int current_cell_set = BITSET_SIZE_DIV (self.tx);
-          int left_cell_same_set =
-              BITSET_SIZE_DIV (left.tx) == current_cell_set;
-          int right_cell_same_set =
-              BITSET_SIZE_DIV (right.tx) == current_cell_set;
-
-          int self_idx  = 0;
-          int up_idx    = 1 * (self.ty != up.ty);
-          int down_idx  = 2 * (self.ty != down.ty);
-          int left_idx  = 3 * (!left_cell_same_set);
-          int right_idx = 4 * (!right_cell_same_set);
-
-          tileset_mark_at (tilesets [self_idx], mark_self, self);
-          tileset_mark_at (tilesets [up_idx], mark_up, up);
-          tileset_mark_at (tilesets [down_idx], mark_down, down);
-          tileset_mark_at (tilesets [left_idx], mark_left, left);
-          tileset_mark_at (tilesets [right_idx], mark_right, right);
-
-          // printf ("Writting self at idx %d, (%lu, %lu)\n"
-          //         "Writting up at idx %d, (%lu, %lu)\n"
-          //         "Writting down at idx %d, (%lu, %lu)\n"
-          //         "Writting left at idx %d, (%lu, %lu)\n"
-          //         "Writting right at idx %d, (%lu, %lu)\n\n",
-          //         self_idx, self.tx, self.ty, up_idx, up.tx, up.ty, down_idx,
-          //         down.tx, down.ty, left_idx, left.tx, left.ty, right_idx,
-          //         right.tx, right.ty);
-
-          // tileset_mark_at (tilesets [thread], mark_self, self);
-          // tileset_mark_at (tilesets [thread], mark_up, up);
-          // tileset_mark_at (tilesets [thread], mark_down, down);
-          // tileset_mark_at (tilesets [thread], mark_left, left);
-          // tileset_mark_at (tilesets [thread], mark_right, right);
+            tileset_mark_at (curr, mark_self, self);
+            tileset_mark_at (curr, mark_up, up);
+            tileset_mark_at (curr, mark_down, down);
+            tileset_mark_at (curr, mark_left, left);
+            tileset_mark_at (curr, mark_right, right);
+          }
         }
 
         sets [i] = 0;
       }
-
-      // #pragma omp barrier
-      //       if (thread == 0)
-      //         change |= TILESET_MERGE (tilesets [1], &tilesets [2], 1);
-
-      //       if (thread == 1)
-      //         change |= TILESET_MERGE (tilesets [3], &tilesets [4], 1);
     }
 
     swap_tables ();
 
-    change |= TILESET_MERGE (tilesets [1], &tilesets [2], 1);
-    change |= TILESET_MERGE (tilesets [3], &tilesets [4], 1);
-    change |= TILESET_MERGE (tilesets [1], &tilesets [3], 1);
-    change |= TILESET_MERGE (tilesets [0], &tilesets [1], 1);
-
+    change        = TILESET_MERGE (tilesets [0], tilesets + 1, num_threads - 1);
     tileset_t tmp = TILESET;
     TILESET       = tilesets [0];
     tilesets [0]  = tmp;
@@ -630,6 +586,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
     return it;
   return 0;
 }
+
 #if __AVX2__ == 1
 
 #include <immintrin.h>
