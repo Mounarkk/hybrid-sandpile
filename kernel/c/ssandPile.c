@@ -549,7 +549,6 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
           tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
 
-          {
             int mark_self  = SANDPILE_BORDER_GET_SELF (loc_change);
             int mark_up    = SANDPILE_BORDER_GET_UP (loc_change);
             int mark_down  = SANDPILE_BORDER_GET_DOWN (loc_change);
@@ -561,7 +560,6 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
             tileset_mark_at (curr, mark_down, down);
             tileset_mark_at (curr, mark_left, left);
             tileset_mark_at (curr, mark_right, right);
-          }
         }
 
         sets [i] = 0;
