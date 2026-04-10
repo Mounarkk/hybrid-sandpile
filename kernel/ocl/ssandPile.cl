@@ -270,34 +270,27 @@ __kernel void ssandPile_ocl_opt5(__global unsigned *in,
 
     int total_cells = IN_H5 * IN_W5;
 
-    // 3-pass mapping (44*28=1232 cells, 3*512=1536 >= 1232)
-    int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size;
-    int tx1 = i1 % IN_W5, ty1 = i1 / IN_W5;
-    int tx2 = i2 % IN_W5, ty2 = i2 / IN_W5;
-    int tx3 = i3 % IN_W5, ty3 = i3 / IN_W5;
-
-    // 1. STATIC LOAD (3 passes)
-    tile0[i1] = in[clamp(base_gy - MARGIN5 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx1, 0, DIM - 1)];
-    if (i2 < total_cells)
-        tile0[i2] = in[clamp(base_gy - MARGIN5 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx2, 0, DIM - 1)];
-    if (i3 < total_cells)
-        tile0[i3] = in[clamp(base_gy - MARGIN5 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx3, 0, DIM - 1)];
+    // Cooperative load, and the compiler unrolls it to static passes
+    #pragma unroll
+    for (int i = tid; i < total_cells; i += wg_size) {
+        int tx = i % IN_W5;
+        int ty = i / IN_W5;
+        tile0[i] = in[clamp(base_gy - MARGIN5 + ty, 0, DIM - 1) * DIM
+                    + clamp(base_gx - MARGIN5 + tx, 0, DIM - 1)];
+    }
     barrier(CLK_LOCAL_MEM_FENCE);
 
     // Iterations 1 to 5
     #define PASS_OPT5(step, t_in, t_out) \
     { \
-        if (tx1 >= step && tx1 < IN_W5 - step && ty1 >= step && ty1 < IN_H5 - step) { \
-            unsigned c = t_in[i1]; \
-            t_out[i1] = (c & 3) + (t_in[i1 - IN_W5] >> 2) + (t_in[i1 + IN_W5] >> 2) + (t_in[i1 - 1] >> 2) + (t_in[i1 + 1] >> 2); \
-        } \
-        if (i2 < total_cells && tx2 >= step && tx2 < IN_W5 - step && ty2 >= step && ty2 < IN_H5 - step) { \
-            unsigned c = t_in[i2]; \
-            t_out[i2] = (c & 3) + (t_in[i2 - IN_W5] >> 2) + (t_in[i2 + IN_W5] >> 2) + (t_in[i2 - 1] >> 2) + (t_in[i2 + 1] >> 2); \
-        } \
-        if (i3 < total_cells && tx3 >= step && tx3 < IN_W5 - step && ty3 >= step && ty3 < IN_H5 - step) { \
-            unsigned c = t_in[i3]; \
-            t_out[i3] = (c & 3) + (t_in[i3 - IN_W5] >> 2) + (t_in[i3 + IN_W5] >> 2) + (t_in[i3 - 1] >> 2) + (t_in[i3 + 1] >> 2); \
+        _Pragma("unroll") \
+        for (int i = tid; i < total_cells; i += wg_size) { \
+            int tx = i % IN_W5; \
+            int ty = i / IN_W5; \
+            if (tx >= step && tx < IN_W5 - step && ty >= step && ty < IN_H5 - step) { \
+                unsigned c = t_in[i]; \
+                t_out[i] = (c & 3) + (t_in[i - IN_W5] >> 2) + (t_in[i + IN_W5] >> 2) + (t_in[i - 1] >> 2) + (t_in[i + 1] >> 2); \
+            } \
         } \
         barrier(CLK_LOCAL_MEM_FENCE); \
     }

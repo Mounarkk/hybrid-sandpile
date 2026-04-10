@@ -856,7 +856,7 @@ void ssandPile_init_ocl_opt5 (void)
 unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
 {
   size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
-  size_t local [2]  = {32, 16}; // Forced 32x16 to match kernel assumptions
+  size_t local [2]  = {TILE_W, TILE_H};
   cl_int err;
 
   const unsigned BATCH_SIZE = 510;
