@@ -60,7 +60,9 @@ __kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __gl
       atomic_or(changed, 1);       
 }
 
-__kernel void ssandPile_ocl_opt3(__global unsigned *in,
+// Multi-iteration version (4 iterations) using dynamic loops for loading and computing.
+// Lower performance but works on any workgroup size.
+__kernel void ssandPile_ocl_multi_m4_loop(__global unsigned *in,
                                  __global unsigned *out,
                                  __global int      *changed)
 {
@@ -168,7 +170,9 @@ __kernel void ssandPile_ocl_opt3(__global unsigned *in,
         atomic_or(changed, 1);
 }
 
-__kernel void ssandPile_ocl_opt4(__global unsigned *in,
+// Optimized version with a margin of 5 (5 iterations per launch).
+// Uses 3-pass static mapping (optimized for 512 threads).
+__kernel void ssandPile_ocl_multi_m5_static(__global unsigned *in,
                                  __global unsigned *out,
                                  __global int      *changed)
 {
@@ -245,7 +249,9 @@ __kernel void ssandPile_ocl_opt4(__global unsigned *in,
     if (tid == 0 && local_changed) atomic_or(changed, 1);
 }
 
-__kernel void ssandPile_ocl_opt5(__global unsigned *in,
+// Optimized version with a margin of 6 (6 iterations per launch).
+// Uses 3-pass static mapping. Best for robust tail-handling.
+__kernel void ssandPile_ocl_multi_m6_robust(__global unsigned *in,
                                  __global unsigned *out,
                                  __global int      *changed)
 {
@@ -270,13 +276,13 @@ __kernel void ssandPile_ocl_opt5(__global unsigned *in,
 
     int total_cells = IN_H5 * IN_W5;
 
-    // 3-pass static mapping (45*28=1260 cells, 3*512=1536 >= 1260)
+    // 3-pass mapping (44*28=1232 cells, 3*512=1536 >= 1232)
     int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size;
     int tx1 = i1 % IN_W5, ty1 = i1 / IN_W5;
     int tx2 = i2 % IN_W5, ty2 = i2 / IN_W5;
     int tx3 = i3 % IN_W5, ty3 = i3 / IN_W5;
 
-    // STATIC LOAD
+    // 1. STATIC LOAD (3 passes)
     tile0[i1] = in[clamp(base_gy - MARGIN5 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx1, 0, DIM - 1)];
     if (i2 < total_cells)
         tile0[i2] = in[clamp(base_gy - MARGIN5 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx2, 0, DIM - 1)];
@@ -321,7 +327,9 @@ __kernel void ssandPile_ocl_opt5(__global unsigned *in,
     if (tid == 0 && local_changed) atomic_or(changed, 1);
 }
 
-__kernel void ssandPile_ocl_opt6(__global unsigned *in,
+// High-density version with a margin of 8 (8 iterations per launch).
+// Uses 4-pass static mapping (optimized for 512 threads in 256x2 or 128x4 dimensions).
+__kernel void ssandPile_ocl_multi_m8_static(__global unsigned *in,
                                  __global unsigned *out,
                                  __global int      *changed)
 {

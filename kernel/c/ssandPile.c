@@ -673,12 +673,18 @@ void ssandPile_refresh_img_ocl (void)
   ssandPile_refresh_img ();
 }
 
-void ssandPile_init_ocl_opt3 (void)
+/*
+ * Variant : multi_m4_loop
+ * Strategy : tiling + 4 iterations in LDS using dynamic loops
+ * Specificity: flexible workgroup size, but has higher control overhead
+ * Usage : ./run -k ssandPile -g -v ocl_multi_m4_loop -s 1024 -i 1000
+ */
+void ssandPile_init_ocl_multi_m4_loop (void)
 {
   ssandPile_init_ocl ();
 }
 
-unsigned ssandPile_compute_ocl_opt3 (unsigned nb_iter)
+unsigned ssandPile_compute_ocl_multi_m4_loop (unsigned nb_iter)
 {
   size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
   size_t local [2]  = {TILE_W, TILE_H};
@@ -748,17 +754,22 @@ unsigned ssandPile_compute_ocl_opt3 (unsigned nb_iter)
   return 0;
 }
 
-void ssandPile_refresh_img_ocl_opt3 (void)
+void ssandPile_refresh_img_ocl_multi_m4_loop (void)
 {
   ssandPile_refresh_img_ocl ();
 }
 
-void ssandPile_init_ocl_opt4 (void)
+/*
+ * Variant : multi_m5_static (best performance)
+ * Strategy : margin 5 with 5 iterations per launch and static LDS mapping
+ * Usage : ./run -k ssandPile -g -v ocl_multi_m5_static -s 4096 -tw 32 -th 16
+ */
+void ssandPile_init_ocl_multi_m5_static (void)
 {
   ssandPile_init_ocl ();
 }
 
-unsigned ssandPile_compute_ocl_opt4 (unsigned nb_iter)
+unsigned ssandPile_compute_ocl_multi_m5_static (unsigned nb_iter)
 {
   size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
   size_t local [2]  = {TILE_W, TILE_H};
@@ -825,35 +836,45 @@ unsigned ssandPile_compute_ocl_opt4 (unsigned nb_iter)
   return 0;
 }
 
-void ssandPile_refresh_img_ocl_opt4 (void)
+void ssandPile_refresh_img_ocl_multi_m5_static (void)
 {
   ssandPile_refresh_img_ocl ();
 }
 
-static cl_kernel k_opt5  = NULL;
-static cl_kernel k_opt4  = NULL;
-static cl_kernel k_opt3  = NULL;
-static cl_kernel k_naive = NULL;
+/*
+ * Variant : multi_m6_robust
+ * Strategy : margin 6 with 6 iterations per launch
+ * Specificity : features an explicit tail handler to support 1000 iterations
+ * since 1000 / 6 is not an integer
+ * Usage : ./run -k ssandPile -g -v ocl_multi_m6_robust -s 1024 -i 1000
+ */
+static cl_kernel k_multi_m6_robust = NULL;
+static cl_kernel k_multi_m5_static = NULL;
+static cl_kernel k_multi_m4_loop   = NULL;
+static cl_kernel k_naive           = NULL;
 
-void ssandPile_init_ocl_opt5 (void)
+void ssandPile_init_ocl_multi_m6_robust (void)
 {
   ssandPile_init_ocl ();
 
   cl_int err;
-  k_opt5 = clCreateKernel (program, "ssandPile_ocl_opt5", &err);
-  check (err, "Failed to create k_opt5");
+  k_multi_m6_robust =
+      clCreateKernel (program, "ssandPile_ocl_multi_m6_robust", &err);
+  check (err, "Failed to create k_multi_m6_robust");
 
-  k_opt4 = clCreateKernel (program, "ssandPile_ocl_opt4", &err);
-  check (err, "Failed to create k_opt4");
+  k_multi_m5_static =
+      clCreateKernel (program, "ssandPile_ocl_multi_m5_static", &err);
+  check (err, "Failed to create k_multi_m5_static");
 
-  k_opt3 = clCreateKernel (program, "ssandPile_ocl_opt3", &err);
-  check (err, "Failed to create k_opt3");
+  k_multi_m4_loop =
+      clCreateKernel (program, "ssandPile_ocl_multi_m4_loop", &err);
+  check (err, "Failed to create k_multi_m4_loop");
 
   k_naive = clCreateKernel (program, "ssandPile_ocl", &err);
   check (err, "Failed to create k_naive");
 }
 
-unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
+unsigned ssandPile_compute_ocl_multi_m6_robust (unsigned nb_iter)
 {
   size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
   size_t local [2]  = {TILE_W, TILE_H};
@@ -875,13 +896,16 @@ unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
         (full_batches - b > BATCH_SIZE / 6) ? BATCH_SIZE / 6 : full_batches - b;
 
     for (unsigned k = 0; k < max_k; k++) {
-      err = clSetKernelArg (k_opt5, 0, sizeof (cl_mem), &ocl_cur_buffer (0));
-      err |= clSetKernelArg (k_opt5, 1, sizeof (cl_mem), &ocl_next_buffer (0));
-      err |= clSetKernelArg (k_opt5, 2, sizeof (cl_mem), &ocl_changed_buffer);
-      check (err, "Failed to set opt5 args");
+      err = clSetKernelArg (k_multi_m6_robust, 0, sizeof (cl_mem),
+                            &ocl_cur_buffer (0));
+      err |= clSetKernelArg (k_multi_m6_robust, 1, sizeof (cl_mem),
+                             &ocl_next_buffer (0));
+      err |= clSetKernelArg (k_multi_m6_robust, 2, sizeof (cl_mem),
+                             &ocl_changed_buffer);
+      check (err, "Failed to set multi_m6_robust args");
 
-      err = clEnqueueNDRangeKernel (ocl_queue (0), k_opt5, 2, NULL, global,
-                                    local, 0, NULL, NULL);
+      err = clEnqueueNDRangeKernel (ocl_queue (0), k_multi_m6_robust, 2, NULL,
+                                    global, local, 0, NULL, NULL);
       total_it += 6;
       cl_mem tmp          = ocl_cur_buffer (0);
       ocl_cur_buffer (0)  = ocl_next_buffer (0);
@@ -906,10 +930,10 @@ unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
     unsigned steps   = 0;
 
     if (remainder == 5) {
-      tail_k = k_opt4;
+      tail_k = k_multi_m5_static;
       steps  = 5;
     } else if (remainder == 4) {
-      tail_k = k_opt3;
+      tail_k = k_multi_m4_loop;
       steps  = 4;
     } else {
       // Remainder 1, 2, or 3
@@ -939,17 +963,23 @@ unsigned ssandPile_compute_ocl_opt5 (unsigned nb_iter)
   return total_it;
 }
 
-void ssandPile_refresh_img_ocl_opt5 (void)
+void ssandPile_refresh_img_ocl_multi_m6_robust (void)
 {
   ssandPile_refresh_img_ocl ();
 }
 
-void ssandPile_init_ocl_opt6 (void)
+/*
+ * Variant : multi_m8_static
+ * Strategy : margin 8 with 8 iterations per launch and 4-pass static load
+ * Specificity : highest iteration density but increased LDS pressure
+ * Usage : ./run -k ssandPile -g -v ocl_multi_m8_static -s 4096 -tw 32 -th 16
+ */
+void ssandPile_init_ocl_multi_m8_static (void)
 {
   ssandPile_init_ocl ();
 }
 
-unsigned ssandPile_compute_ocl_opt6 (unsigned nb_iter)
+unsigned ssandPile_compute_ocl_multi_m8_static (unsigned nb_iter)
 {
   size_t global [2] = {GPU_SIZE_X, GPU_SIZE_Y};
   size_t local [2]  = {TILE_W, TILE_H};
@@ -1017,7 +1047,7 @@ unsigned ssandPile_compute_ocl_opt6 (unsigned nb_iter)
   return 0;
 }
 
-void ssandPile_refresh_img_ocl_opt6 (void)
+void ssandPile_refresh_img_ocl_multi_m8_static (void)
 {
   ssandPile_refresh_img_ocl ();
 }
