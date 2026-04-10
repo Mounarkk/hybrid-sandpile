@@ -1,1 +1,1 @@
-OMP_NUM_THREADS=4 OMP_THREAD_BIND=close OMP_PLACES=cores  ./run -k ssandPile -v omp_lazy_border -wt opt_avx -th 8 -tw 16 -s 1024 -a spirals -n
+OMP_NUM_THREADS=1 OMP_THREAD_BIND=close OMP_PLACES=cores  ./run -k ssandPile -v omp_lazy_border -wt opt_avx -th 8 -tw 16 -s 1024 -a spirals -n
