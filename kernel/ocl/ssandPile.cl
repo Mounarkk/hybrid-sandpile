@@ -270,28 +270,50 @@ __kernel void ssandPile_ocl_opt5(__global unsigned *in,
 
     int total_cells = IN_H5 * IN_W5;
 
-    // Cooperative load, and the compiler unrolls it to static passes
-    #pragma unroll
-    for (int i = tid; i < total_cells; i += wg_size) {
-        int tx = i % IN_W5;
-        int ty = i / IN_W5;
-        tile0[i] = in[clamp(base_gy - MARGIN5 + ty, 0, DIM - 1) * DIM
-                    + clamp(base_gx - MARGIN5 + tx, 0, DIM - 1)];
-    }
+    // 8-pass static mapping (covers up to 8*512=4096 cells)
+    int i1 = tid,              i2 = tid + wg_size,     i3 = tid + 2*wg_size,  i4 = tid + 3*wg_size;
+    int i5 = tid + 4*wg_size,  i6 = tid + 5*wg_size,   i7 = tid + 6*wg_size,  i8 = tid + 7*wg_size;
+    int tx1 = i1 % IN_W5, ty1 = i1 / IN_W5;
+    int tx2 = i2 % IN_W5, ty2 = i2 / IN_W5;
+    int tx3 = i3 % IN_W5, ty3 = i3 / IN_W5;
+    int tx4 = i4 % IN_W5, ty4 = i4 / IN_W5;
+    int tx5 = i5 % IN_W5, ty5 = i5 / IN_W5;
+    int tx6 = i6 % IN_W5, ty6 = i6 / IN_W5;
+    int tx7 = i7 % IN_W5, ty7 = i7 / IN_W5;
+    int tx8 = i8 % IN_W5, ty8 = i8 / IN_W5;
+
+    // STATIC LOAD
+    #define LOAD5(idx) \
+        tile0[idx] = in[clamp(base_gy - MARGIN5 + idx / IN_W5, 0, DIM - 1) * DIM \
+                      + clamp(base_gx - MARGIN5 + idx % IN_W5, 0, DIM - 1)]
+
+    LOAD5(i1);
+    if (i2 < total_cells) LOAD5(i2);
+    if (i3 < total_cells) LOAD5(i3);
+    if (i4 < total_cells) LOAD5(i4);
+    if (i5 < total_cells) LOAD5(i5);
+    if (i6 < total_cells) LOAD5(i6);
+    if (i7 < total_cells) LOAD5(i7);
+    if (i8 < total_cells) LOAD5(i8);
     barrier(CLK_LOCAL_MEM_FENCE);
 
     // Iterations 1 to 5
+    #define CELL5(idx, txN, tyN, step, t_in, t_out) \
+        if (idx < total_cells && txN >= step && txN < IN_W5 - step && tyN >= step && tyN < IN_H5 - step) { \
+            unsigned c = t_in[idx]; \
+            t_out[idx] = (c & 3) + (t_in[idx - IN_W5] >> 2) + (t_in[idx + IN_W5] >> 2) + (t_in[idx - 1] >> 2) + (t_in[idx + 1] >> 2); \
+        }
+
     #define PASS_OPT5(step, t_in, t_out) \
     { \
-        _Pragma("unroll") \
-        for (int i = tid; i < total_cells; i += wg_size) { \
-            int tx = i % IN_W5; \
-            int ty = i / IN_W5; \
-            if (tx >= step && tx < IN_W5 - step && ty >= step && ty < IN_H5 - step) { \
-                unsigned c = t_in[i]; \
-                t_out[i] = (c & 3) + (t_in[i - IN_W5] >> 2) + (t_in[i + IN_W5] >> 2) + (t_in[i - 1] >> 2) + (t_in[i + 1] >> 2); \
-            } \
-        } \
+        CELL5(i1, tx1, ty1, step, t_in, t_out); \
+        CELL5(i2, tx2, ty2, step, t_in, t_out); \
+        CELL5(i3, tx3, ty3, step, t_in, t_out); \
+        CELL5(i4, tx4, ty4, step, t_in, t_out); \
+        CELL5(i5, tx5, ty5, step, t_in, t_out); \
+        CELL5(i6, tx6, ty6, step, t_in, t_out); \
+        CELL5(i7, tx7, ty7, step, t_in, t_out); \
+        CELL5(i8, tx8, ty8, step, t_in, t_out); \
         barrier(CLK_LOCAL_MEM_FENCE); \
     }
 
