@@ -270,50 +270,35 @@ __kernel void ssandPile_ocl_opt5(__global unsigned *in,
 
     int total_cells = IN_H5 * IN_W5;
 
-    // 8-pass static mapping (covers up to 8*512=4096 cells)
-    int i1 = tid,              i2 = tid + wg_size,     i3 = tid + 2*wg_size,  i4 = tid + 3*wg_size;
-    int i5 = tid + 4*wg_size,  i6 = tid + 5*wg_size,   i7 = tid + 6*wg_size,  i8 = tid + 7*wg_size;
+    // 3-pass static mapping (45*28=1260 cells, 3*512=1536 >= 1260)
+    int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size;
     int tx1 = i1 % IN_W5, ty1 = i1 / IN_W5;
     int tx2 = i2 % IN_W5, ty2 = i2 / IN_W5;
     int tx3 = i3 % IN_W5, ty3 = i3 / IN_W5;
-    int tx4 = i4 % IN_W5, ty4 = i4 / IN_W5;
-    int tx5 = i5 % IN_W5, ty5 = i5 / IN_W5;
-    int tx6 = i6 % IN_W5, ty6 = i6 / IN_W5;
-    int tx7 = i7 % IN_W5, ty7 = i7 / IN_W5;
-    int tx8 = i8 % IN_W5, ty8 = i8 / IN_W5;
 
     // STATIC LOAD
-    #define LOAD5(idx) \
-        tile0[idx] = in[clamp(base_gy - MARGIN5 + idx / IN_W5, 0, DIM - 1) * DIM \
-                      + clamp(base_gx - MARGIN5 + idx % IN_W5, 0, DIM - 1)]
-
-    LOAD5(i1);
-    if (i2 < total_cells) LOAD5(i2);
-    if (i3 < total_cells) LOAD5(i3);
-    if (i4 < total_cells) LOAD5(i4);
-    if (i5 < total_cells) LOAD5(i5);
-    if (i6 < total_cells) LOAD5(i6);
-    if (i7 < total_cells) LOAD5(i7);
-    if (i8 < total_cells) LOAD5(i8);
+    tile0[i1] = in[clamp(base_gy - MARGIN5 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx1, 0, DIM - 1)];
+    if (i2 < total_cells)
+        tile0[i2] = in[clamp(base_gy - MARGIN5 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx2, 0, DIM - 1)];
+    if (i3 < total_cells)
+        tile0[i3] = in[clamp(base_gy - MARGIN5 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN5 + tx3, 0, DIM - 1)];
     barrier(CLK_LOCAL_MEM_FENCE);
 
     // Iterations 1 to 5
-    #define CELL5(idx, txN, tyN, step, t_in, t_out) \
-        if (idx < total_cells && txN >= step && txN < IN_W5 - step && tyN >= step && tyN < IN_H5 - step) { \
-            unsigned c = t_in[idx]; \
-            t_out[idx] = (c & 3) + (t_in[idx - IN_W5] >> 2) + (t_in[idx + IN_W5] >> 2) + (t_in[idx - 1] >> 2) + (t_in[idx + 1] >> 2); \
-        }
-
     #define PASS_OPT5(step, t_in, t_out) \
     { \
-        CELL5(i1, tx1, ty1, step, t_in, t_out); \
-        CELL5(i2, tx2, ty2, step, t_in, t_out); \
-        CELL5(i3, tx3, ty3, step, t_in, t_out); \
-        CELL5(i4, tx4, ty4, step, t_in, t_out); \
-        CELL5(i5, tx5, ty5, step, t_in, t_out); \
-        CELL5(i6, tx6, ty6, step, t_in, t_out); \
-        CELL5(i7, tx7, ty7, step, t_in, t_out); \
-        CELL5(i8, tx8, ty8, step, t_in, t_out); \
+        if (tx1 >= step && tx1 < IN_W5 - step && ty1 >= step && ty1 < IN_H5 - step) { \
+            unsigned c = t_in[i1]; \
+            t_out[i1] = (c & 3) + (t_in[i1 - IN_W5] >> 2) + (t_in[i1 + IN_W5] >> 2) + (t_in[i1 - 1] >> 2) + (t_in[i1 + 1] >> 2); \
+        } \
+        if (i2 < total_cells && tx2 >= step && tx2 < IN_W5 - step && ty2 >= step && ty2 < IN_H5 - step) { \
+            unsigned c = t_in[i2]; \
+            t_out[i2] = (c & 3) + (t_in[i2 - IN_W5] >> 2) + (t_in[i2 + IN_W5] >> 2) + (t_in[i2 - 1] >> 2) + (t_in[i2 + 1] >> 2); \
+        } \
+        if (i3 < total_cells && tx3 >= step && tx3 < IN_W5 - step && ty3 >= step && ty3 < IN_H5 - step) { \
+            unsigned c = t_in[i3]; \
+            t_out[i3] = (c & 3) + (t_in[i3 - IN_W5] >> 2) + (t_in[i3 + IN_W5] >> 2) + (t_in[i3 - 1] >> 2) + (t_in[i3 + 1] >> 2); \
+        } \
         barrier(CLK_LOCAL_MEM_FENCE); \
     }
 
@@ -327,6 +312,91 @@ __kernel void ssandPile_ocl_opt5(__global unsigned *in,
     int i_final = (ly + MARGIN5) * IN_W5 + (lx + MARGIN5);
     unsigned center = tile1[i_final];
     unsigned res = (center & 3) + (tile1[i_final - IN_W5] >> 2) + (tile1[i_final + IN_W5] >> 2) + (tile1[i_final - 1] >> 2) + (tile1[i_final + 1] >> 2);
+
+    if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
+        out[gy * DIM + gx] = res;
+        if (res != center) atomic_or(&local_changed, 1);
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (tid == 0 && local_changed) atomic_or(changed, 1);
+}
+
+__kernel void ssandPile_ocl_opt6(__global unsigned *in,
+                                 __global unsigned *out,
+                                 __global int      *changed)
+{
+    #define MARGIN6 8
+    #define TRUE_W6 (TILE_W + 2 * MARGIN6)
+    #define TRUE_H6 (TILE_H + 2 * MARGIN6)
+    #define IN_W6 (TRUE_W6 | 1)  // odd stride, bank-conflict free
+    #define IN_H6 TRUE_H6
+
+    __local unsigned tile0[IN_H6 * IN_W6];
+    __local unsigned tile1[IN_H6 * IN_W6];
+    __local int local_changed;
+
+    int lx = get_local_id(0), ly = get_local_id(1);
+    int tid = ly * TILE_W + lx;
+    int wg_size = TILE_W * TILE_H;
+    int gx = get_global_id(0), gy = get_global_id(1);
+    int base_gx = get_group_id(0) * TILE_W;
+    int base_gy = get_group_id(1) * TILE_H;
+
+    if (tid == 0) local_changed = 0;
+
+    int total_cells = IN_H6 * IN_W6;
+
+    // 4-pass static mapping (49*32=1568 cells, 4*512=2048 >= 1568)
+    int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size, i4 = tid + 3 * wg_size;
+    int tx1 = i1 % IN_W6, ty1 = i1 / IN_W6;
+    int tx2 = i2 % IN_W6, ty2 = i2 / IN_W6;
+    int tx3 = i3 % IN_W6, ty3 = i3 / IN_W6;
+    int tx4 = i4 % IN_W6, ty4 = i4 / IN_W6;
+
+    // STATIC LOAD (4 passes)
+    tile0[i1] = in[clamp(base_gy - MARGIN6 + ty1, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN6 + tx1, 0, DIM - 1)];
+    if (i2 < total_cells)
+        tile0[i2] = in[clamp(base_gy - MARGIN6 + ty2, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN6 + tx2, 0, DIM - 1)];
+    if (i3 < total_cells)
+        tile0[i3] = in[clamp(base_gy - MARGIN6 + ty3, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN6 + tx3, 0, DIM - 1)];
+    if (i4 < total_cells)
+        tile0[i4] = in[clamp(base_gy - MARGIN6 + ty4, 0, DIM - 1) * DIM + clamp(base_gx - MARGIN6 + tx4, 0, DIM - 1)];
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Iterations 1 to 7
+    #define PASS_OPT6(step, t_in, t_out) \
+    { \
+        if (tx1 >= step && tx1 < IN_W6 - step && ty1 >= step && ty1 < IN_H6 - step) { \
+            unsigned c = t_in[i1]; \
+            t_out[i1] = (c & 3) + (t_in[i1 - IN_W6] >> 2) + (t_in[i1 + IN_W6] >> 2) + (t_in[i1 - 1] >> 2) + (t_in[i1 + 1] >> 2); \
+        } \
+        if (i2 < total_cells && tx2 >= step && tx2 < IN_W6 - step && ty2 >= step && ty2 < IN_H6 - step) { \
+            unsigned c = t_in[i2]; \
+            t_out[i2] = (c & 3) + (t_in[i2 - IN_W6] >> 2) + (t_in[i2 + IN_W6] >> 2) + (t_in[i2 - 1] >> 2) + (t_in[i2 + 1] >> 2); \
+        } \
+        if (i3 < total_cells && tx3 >= step && tx3 < IN_W6 - step && ty3 >= step && ty3 < IN_H6 - step) { \
+            unsigned c = t_in[i3]; \
+            t_out[i3] = (c & 3) + (t_in[i3 - IN_W6] >> 2) + (t_in[i3 + IN_W6] >> 2) + (t_in[i3 - 1] >> 2) + (t_in[i3 + 1] >> 2); \
+        } \
+        if (i4 < total_cells && tx4 >= step && tx4 < IN_W6 - step && ty4 >= step && ty4 < IN_H6 - step) { \
+            unsigned c = t_in[i4]; \
+            t_out[i4] = (c & 3) + (t_in[i4 - IN_W6] >> 2) + (t_in[i4 + IN_W6] >> 2) + (t_in[i4 - 1] >> 2) + (t_in[i4 + 1] >> 2); \
+        } \
+        barrier(CLK_LOCAL_MEM_FENCE); \
+    }
+
+    PASS_OPT6(1, tile0, tile1);
+    PASS_OPT6(2, tile1, tile0);
+    PASS_OPT6(3, tile0, tile1);
+    PASS_OPT6(4, tile1, tile0);
+    PASS_OPT6(5, tile0, tile1);
+    PASS_OPT6(6, tile1, tile0);
+    PASS_OPT6(7, tile0, tile1);
+
+    // Final iteration 8: write directly to global memory
+    int i_final = (ly + MARGIN6) * IN_W6 + (lx + MARGIN6);
+    unsigned center = tile1[i_final];
+    unsigned res = (center & 3) + (tile1[i_final - IN_W6] >> 2) + (tile1[i_final + IN_W6] >> 2) + (tile1[i_final - 1] >> 2) + (tile1[i_final + 1] >> 2);
 
     if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
         out[gy * DIM + gx] = res;
