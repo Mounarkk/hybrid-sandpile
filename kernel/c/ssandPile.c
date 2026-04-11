@@ -1355,4 +1355,102 @@ void ssandPile_refresh_img_ocl_multi_m8_static (void)
   ssandPile_refresh_img_ocl ();
 }
 
+/*
+ * Variant : multi_m5_static_quad
+ * Strategy : exploits 4-way symmetry by computing only the top-left quadrant
+ * Usage : ./run -k ssandPile -g -v ocl_multi_m5_static_quad -s 4096 -tw 32 -th
+ * 16
+ */
+void ssandPile_init_ocl_multi_m5_static_quad (void)
+{
+  ssandPile_init_ocl ();
+}
+
+unsigned ssandPile_compute_ocl_multi_m5_static_quad (unsigned nb_iter)
+{
+  /* Only launch over the top-left quadrant so that we have 4x fewer workgroups
+   */
+  size_t global [2] = {GPU_SIZE_X / 2, GPU_SIZE_Y / 2};
+  size_t local [2]  = {TILE_W, TILE_H};
+  cl_int err;
+
+  const unsigned BATCH_SIZE = 510;
+  const int zero            = 0;
+
+  err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
+                        &ocl_changed_buffer);
+  check (err, "Failed to set kernel arg 2");
+
+  unsigned total_it = 0;
+  monitoring_start (easypap_gpu_lane (0));
+
+  for (unsigned it = 1; it <= nb_iter; it += BATCH_SIZE) {
+
+    err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
+                               sizeof (int), 0, sizeof (int), 0, NULL, NULL);
+
+    unsigned remaining = nb_iter - it + 1;
+    unsigned max_k     = (remaining + 4) / 5;
+    if (max_k > BATCH_SIZE / 5)
+      max_k = BATCH_SIZE / 5;
+    if (max_k == 0)
+      break;
+
+    err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                          &ocl_cur_buffer (0));
+    err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                           &ocl_next_buffer (0));
+    check (err, "Failed to set kernel args 0-1");
+
+    for (unsigned k = 0; k < max_k; k++) {
+      total_it += 5;
+      err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
+                                    NULL, global, local, 0, NULL, NULL);
+
+      cl_mem tmp          = ocl_cur_buffer (0);
+      ocl_cur_buffer (0)  = ocl_next_buffer (0);
+      ocl_next_buffer (0) = tmp;
+
+      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                            &ocl_cur_buffer (0));
+      err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                             &ocl_next_buffer (0));
+    }
+
+    int changed;
+    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                               sizeof (int), &changed, 0, NULL, NULL);
+    check (err, "Failed to read changed flag");
+
+    if (changed == 0) {
+      clFinish (ocl_queue (0));
+      monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+      return total_it;
+    }
+  }
+
+  clFinish (ocl_queue (0));
+  monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+  return 0;
+}
+
+void ssandPile_refresh_img_ocl_multi_m5_static_quad (void)
+{
+  /* 1. Read the GPU buffer into the TABLE and convert to image as usual */
+  ssandPile_refresh_img_ocl ();
+
+  /* 2. Replicate the top-left quadrant to the other three */
+  const int QDIM = DIM / 2;
+
+  for (int y = 0; y < QDIM; y++) {
+    for (int x = 0; x < QDIM; x++) {
+      uint32_t color = cur_img (y, x);
+
+      cur_img (y, DIM - 1 - x)           = color; /* top-right */
+      cur_img (DIM - 1 - y, x)           = color; /* bottom-left */
+      cur_img (DIM - 1 - y, DIM - 1 - x) = color; /* bottom-right */
+    }
+  }
+}
+
 #endif

@@ -443,4 +443,99 @@ __kernel void ssandPile_update_texture (__global unsigned *cur,
   write_imagef (tex, pos, color_to_float4 (c));
 }
 
+// Exploits 4-way symmetry in the 4partout case. Only the top-left quadrant is computed.
+// Reflective boundaries are used at the center-lines (right/bottom of the quadrant).
+__kernel void ssandPile_ocl_multi_m5_static_quad (__global unsigned *in,
+                                                  __global unsigned *out,
+                                                  __global int      *changed)
+{
+    #define MARGIN_Q 5
+    #define TRUE_W_Q (TILE_W + 2 * MARGIN_Q)
+    #define TRUE_H_Q (TILE_H + 2 * MARGIN_Q)
+    #define IN_W_Q (TRUE_W_Q | 1)
+    #define IN_H_Q TRUE_H_Q
+    #define QDIM (DIM / 2)
+
+    // Mixed boundary conditions,
+    // left/top we absorb (clamp to 0)
+    // right/bottom we reflect (x >= QDIM -> 2*QDIM - 1 - x)
+    #define CLAMP_X(x) ((x) < 0 ? 0 : ((x) >= QDIM ? 2 * QDIM - 1 - (x) : (x)))
+    #define CLAMP_Y(y) ((y) < 0 ? 0 : ((y) >= QDIM ? 2 * QDIM - 1 - (y) : (y)))
+
+    __local unsigned tile0[IN_H_Q * IN_W_Q];
+    __local unsigned tile1[IN_H_Q * IN_W_Q];
+    __local int local_changed;
+
+    int lx = get_local_id(0), ly = get_local_id(1);
+    int tid = ly * TILE_W + lx;
+    int wg_size = TILE_W * TILE_H;
+    int gx = get_global_id(0); // 0 .. QDIM-1
+    int gy = get_global_id(1); // 0 .. QDIM-1
+    int base_gx = get_group_id(0) * TILE_W;
+    int base_gy = get_group_id(1) * TILE_H;
+
+    if (tid == 0) local_changed = 0;
+
+    int total_cells = IN_H_Q * IN_W_Q;
+
+    // Static 3-pass mapping
+    int i1 = tid, i2 = tid + wg_size, i3 = tid + 2 * wg_size;
+    int tx1 = i1 % IN_W_Q, ty1 = i1 / IN_W_Q;
+    int tx2 = i2 % IN_W_Q, ty2 = i2 / IN_W_Q;
+    int tx3 = i3 % IN_W_Q, ty3 = i3 / IN_W_Q;
+
+    // 1. STATIC LOAD with reflective clamping
+    {
+        int rx1 = base_gx - MARGIN_Q + tx1, ry1 = base_gy - MARGIN_Q + ty1;
+        tile0[i1] = in[CLAMP_Y(ry1) * DIM + CLAMP_X(rx1)];
+
+        if (i2 < total_cells) {
+            int rx2 = base_gx - MARGIN_Q + tx2, ry2 = base_gy - MARGIN_Q + ty2;
+            tile0[i2] = in[CLAMP_Y(ry2) * DIM + CLAMP_X(rx2)];
+        }
+        if (i3 < total_cells) {
+            int rx3 = base_gx - MARGIN_Q + tx3, ry3 = base_gy - MARGIN_Q + ty3;
+            tile0[i3] = in[CLAMP_Y(ry3) * DIM + CLAMP_X(rx3)];
+        }
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // 2. 5 iterations in LDS
+    #define PASS_QUAD(step, t_in, t_out) \
+    { \
+        if (tx1 >= step && tx1 < IN_W_Q - step && ty1 >= step && ty1 < IN_H_Q - step) { \
+            unsigned c = t_in[i1]; \
+            t_out[i1] = (c & 3) + (t_in[i1 - IN_W_Q] >> 2) + (t_in[i1 + IN_W_Q] >> 2) + (t_in[i1 - 1] >> 2) + (t_in[i1 + 1] >> 2); \
+        } \
+        if (i2 < total_cells && tx2 >= step && tx2 < IN_W_Q - step && ty2 >= step && ty2 < IN_H_Q - step) { \
+            unsigned c = t_in[i2]; \
+            t_out[i2] = (c & 3) + (t_in[i2 - IN_W_Q] >> 2) + (t_in[i2 + IN_W_Q] >> 2) + (t_in[i2 - 1] >> 2) + (t_in[i2 + 1] >> 2); \
+        } \
+        if (i3 < total_cells && tx3 >= step && tx3 < IN_W_Q - step && ty3 >= step && ty3 < IN_H_Q - step) { \
+            unsigned c = t_in[i3]; \
+            t_out[i3] = (c & 3) + (t_in[i3 - IN_W_Q] >> 2) + (t_in[i3 + IN_W_Q] >> 2) + (t_in[i3 - 1] >> 2) + (t_in[i3 + 1] >> 2); \
+        } \
+        barrier(CLK_LOCAL_MEM_FENCE); \
+    }
+
+    PASS_QUAD(1, tile0, tile1);
+    PASS_QUAD(2, tile1, tile0);
+    PASS_QUAD(3, tile0, tile1);
+    PASS_QUAD(4, tile1, tile0);
+
+    // 3. Final 5th iteration and global write
+    int i_final = (ly + MARGIN_Q) * IN_W_Q + (lx + MARGIN_Q);
+    unsigned center = tile0[i_final];
+    unsigned res = (center & 3) + (tile0[i_final - IN_W_Q] >> 2) + (tile0[i_final + IN_W_Q] >> 2) + (tile0[i_final - 1] >> 2) + (tile0[i_final + 1] >> 2);
+
+    // Write only if inside the quadrant (gx > 0 and gy > 0 for sinks)
+    if (gx > 0 && gy > 0) {
+        out[gy * DIM + gx] = res;
+        if (res != center) atomic_or(&local_changed, 1);
+    }
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (tid == 0 && local_changed) atomic_or(changed, 1);
+}
+
 #endif
