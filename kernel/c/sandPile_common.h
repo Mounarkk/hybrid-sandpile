@@ -269,9 +269,7 @@ void tileset_trunc (tileset_t tileset);
 
 static inline void tileset_mark_empty (tileset_t tileset)
 {
-  unsigned total = TOTAL_NB_SETS;
-  for (unsigned i = 0; i < total; i++)
-    tileset_at (tileset, i) = 0;
+  memset(&tileset_at(tileset, 0), 0, TOTAL_NB_SETS * BITSET_SIZE >> 3);
 }
 
 static inline unsigned long tileset_get_total_tiles (tileset_t tileset)
@@ -339,12 +337,13 @@ static inline int tileset_merge_avx (tileset_t tile, tileset_t *restrict others,
 
   for (unsigned j = 0; j < TOTAL_NB_SETS; j += BITSET_AVX_SIZE) {
     __m256i *tile_at = (__m256i *)(&tileset_at (tile, j));
-    __m256i t = _mm256_load_si256 (tile_at);
+    __m256i t = VEC_ZERO;
 
     SANDPILE_UNROLL_LOOP (4)
     for (unsigned i = 0; i < nb_others; i++) {
-      __m256i other =
-          _mm256_load_si256 ((__m256i *)(&tileset_at (others [i], j)));
+      __m256i *other_at = (__m256i *)(&tileset_at (others[i], j));
+      __m256i other = _mm256_load_si256 (other_at);
+      
       t = _mm256_or_si256 (t, other);
     }
 
