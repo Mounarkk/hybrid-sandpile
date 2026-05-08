@@ -10,10 +10,10 @@ easypapOptions = {
     "-g": [""],
     "-v": ["ocl_hybrid"],
     "-a": ["4partout"],
-    "-s": [4096],
+    "-s": [1024],
     "-th": [16],
     "-tw": [32],
-    "-i": ["1000"],
+    "-i": ["4000"],
     "-c": split_percentages,
     "-of": [output_file],
 }
