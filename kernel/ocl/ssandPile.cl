@@ -1,10 +1,9 @@
 #include "kernel/ocl/common.cl"
 
-__attribute__((reqd_work_group_size(TILE_W, TILE_H, 1)))
-__kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __global int *changed)
+__kernel void ssandPile_ocl_hybrid (__global unsigned *in, __global unsigned *out, __global int *changed, int valid_y_end)
 {
   // We try to eliminate bank conflicts
-  #define ROW_STRIDE (TILE_W + 1)
+  #define ROW_STRIDE (TILE_W + 2)
   
   __local unsigned tile[(TILE_H + 2) * ROW_STRIDE];
 
@@ -39,7 +38,131 @@ __kernel void ssandPile_ocl (__global unsigned *in, __global unsigned *out, __gl
       + (tile[(ly + 1) * ROW_STRIDE + (lx + 2)] >> 2);  /* right */
 
     out[gy * DIM + gx] = res;
-    my_changed = (res != center);
+    if (gy < valid_y_end) {
+      my_changed = (res != center);
+    }
+  }
+
+  // Parallel reduction
+  __local int lflags[TILE_W * TILE_H];
+  int tid = ly * TILE_W + lx;
+  lflags[tid] = my_changed;
+
+  barrier(CLK_LOCAL_MEM_FENCE); 
+
+  for (int s = (TILE_W * TILE_H) >> 1; s > 0; s >>= 1) {
+      if (tid < s) {
+          lflags[tid] |= lflags[tid + s];
+      }
+      barrier(CLK_LOCAL_MEM_FENCE);
+  }
+
+  if (tid == 0 && lflags[0])
+      atomic_or(changed, 1);       
+}
+
+__kernel void ssandPile_ocl_hybrid_thick (__global unsigned *in, __global unsigned *out, __global int *changed, int valid_y_end)
+{
+  // We try to eliminate bank conflicts
+  #define ROW_STRIDE (TILE_W + 2)
+  
+  __local unsigned tile[(TILE_H + 2) * ROW_STRIDE];
+
+  int lx = get_local_id(0),  ly = get_local_id(1);
+  int gx = get_global_id(0), gy = get_global_id(1);
+
+  tile[(ly + 1) * ROW_STRIDE + (lx + 1)] = in[gy * DIM + gx];
+
+  // Load halo
+  if (lx == 0) {
+      tile[(ly + 1) * ROW_STRIDE + 0] = (gx > 0) ? in[gy * DIM + (gx - 1)] : 0;
+  } else if (lx == TILE_W - 1) {
+      tile[(ly + 1) * ROW_STRIDE + TILE_W + 1] = (gx < DIM - 1) ? in[gy * DIM + (gx + 1)] : 0;
+  }
+
+  if (ly == 0) {
+      tile[0 * ROW_STRIDE + (lx + 1)] = (gy > 0) ? in[(gy - 1) * DIM + gx] : 0;
+  } else if (ly == TILE_H - 1) {
+      tile[(TILE_H + 1) * ROW_STRIDE + (lx + 1)] = (gy < DIM - 1) ? in[(gy + 1) * DIM + gx] : 0;
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);   
+
+  int my_changed = 0;
+
+  if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
+    unsigned center = tile[(ly + 1) * ROW_STRIDE + (lx + 1)];
+    unsigned res = (center & 3)
+      + (tile[(ly + 0) * ROW_STRIDE + (lx + 1)] >> 2)   /* up    */
+      + (tile[(ly + 2) * ROW_STRIDE + (lx + 1)] >> 2)   /* down  */
+      + (tile[(ly + 1) * ROW_STRIDE + (lx + 0)] >> 2)   /* left  */
+      + (tile[(ly + 1) * ROW_STRIDE + (lx + 2)] >> 2);  /* right */
+
+    out[gy * DIM + gx] = res;
+    if (gy < valid_y_end) {
+      my_changed = (res != center);
+    }
+  }
+
+  // Parallel reduction
+  __local int lflags[TILE_W * TILE_H];
+  int tid = ly * TILE_W + lx;
+  lflags[tid] = my_changed;
+
+  barrier(CLK_LOCAL_MEM_FENCE); 
+
+  for (int s = (TILE_W * TILE_H) >> 1; s > 0; s >>= 1) {
+      if (tid < s) {
+          lflags[tid] |= lflags[tid + s];
+      }
+      barrier(CLK_LOCAL_MEM_FENCE);
+  }
+
+  if (tid == 0 && lflags[0])
+      atomic_or(changed, 1);       
+}
+
+__kernel void ssandPile_ocl_hybrid_dynamic (__global unsigned *in, __global unsigned *out, __global int *changed, int valid_y_end)
+{
+  // We try to eliminate bank conflicts
+  #define ROW_STRIDE (TILE_W + 2)
+  
+  __local unsigned tile[(TILE_H + 2) * ROW_STRIDE];
+
+  int lx = get_local_id(0),  ly = get_local_id(1);
+  int gx = get_global_id(0), gy = get_global_id(1);
+
+  tile[(ly + 1) * ROW_STRIDE + (lx + 1)] = in[gy * DIM + gx];
+
+  // Load halo
+  if (lx == 0) {
+      tile[(ly + 1) * ROW_STRIDE + 0] = (gx > 0) ? in[gy * DIM + (gx - 1)] : 0;
+  } else if (lx == TILE_W - 1) {
+      tile[(ly + 1) * ROW_STRIDE + TILE_W + 1] = (gx < DIM - 1) ? in[gy * DIM + (gx + 1)] : 0;
+  }
+
+  if (ly == 0) {
+      tile[0 * ROW_STRIDE + (lx + 1)] = (gy > 0) ? in[(gy - 1) * DIM + gx] : 0;
+  } else if (ly == TILE_H - 1) {
+      tile[(TILE_H + 1) * ROW_STRIDE + (lx + 1)] = (gy < DIM - 1) ? in[(gy + 1) * DIM + gx] : 0;
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);   
+
+  int my_changed = 0;
+
+  if (gx > 0 && gx < DIM - 1 && gy > 0 && gy < DIM - 1) {
+    unsigned center = tile[(ly + 1) * ROW_STRIDE + (lx + 1)];
+    unsigned res = (center & 3)
+      + (tile[(ly + 0) * ROW_STRIDE + (lx + 1)] >> 2)   /* up    */
+      + (tile[(ly + 2) * ROW_STRIDE + (lx + 1)] >> 2)   /* down  */
+      + (tile[(ly + 1) * ROW_STRIDE + (lx + 0)] >> 2)   /* left  */
+      + (tile[(ly + 1) * ROW_STRIDE + (lx + 2)] >> 2);  /* right */
+
+    out[gy * DIM + gx] = res;
+    if (gy < valid_y_end) {
+      my_changed = (res != center);
+    }
   }
 
   // Parallel reduction

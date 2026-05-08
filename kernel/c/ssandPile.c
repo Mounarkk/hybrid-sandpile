@@ -2,8 +2,11 @@
 
 #include <omp.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
+
+int gpu_batch_size = 512;
 
 //////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////
@@ -34,6 +37,11 @@ void ssandPile_debug (int x, int y)
 
 void ssandPile_init (void)
 {
+  if (config_param != NULL) {
+    gpu_batch_size = atoi (config_param);
+    PRINT_DEBUG ('u', "Using GPU BATCH_SIZE = %d\n", gpu_batch_size);
+  }
+
   if (TABLE == NULL) {
     const unsigned size = 2 * DIM * DIM * sizeof (TYPE);
 
@@ -516,12 +524,12 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 #pragma omp parallel
     {
       tileset_t curr = tilesets [omp_get_thread_num ()];
-      tileset_mark_empty(curr);
+      tileset_mark_empty (curr);
 #pragma omp for schedule(static)
       for (unsigned i = 0; i < TOTAL_NB_SETS; i++) {
         unsigned tile_y = i / SETS_PER_ROW;
         unsigned set_x  = i - tile_y * SETS_PER_ROW;
-        bitset set = sets [i];
+        bitset set      = sets [i];
 
         while (set != 0) {
           unsigned pos = bitset_clz (set);
@@ -535,17 +543,17 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
           x = t.tx * TILE_W;
           y = t.ty * TILE_H;
 
-	  int loc_change;
+          int loc_change;
 
-          int y_0        = (y == 0);
-          int x_0        = (x == 0);
-          int y_end      = (y + TILE_H == DIM);
-          int x_end      = (x + TILE_W == DIM);
+          int y_0    = (y == 0);
+          int x_0    = (x == 0);
+          int y_end  = (y + TILE_H == DIM);
+          int x_end  = (x + TILE_W == DIM);
           loc_change = do_tile (x + x_0, y + y_0, TILE_W - x_end - x_0,
-                                    TILE_H - y_end - y_0);
+                                TILE_H - y_end - y_0);
 
           tile self  = t;
-	  tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
+          tile up    = {.tx = t.tx, .ty = t.ty - 1 + y_0};
           tile down  = {.tx = t.tx, .ty = t.ty + 1 - y_end};
           tile left  = {.tx = t.tx - 1 + x_0, .ty = t.ty};
           tile right = {.tx = t.tx + 1 - x_end, .ty = t.ty};
@@ -567,7 +575,7 @@ unsigned ssandPile_compute_omp_lazy_border (unsigned nb_iter)
 
     swap_tables ();
 
-    change        = TILESET_MERGE (TILESET, tilesets, num_threads);
+    change = TILESET_MERGE (TILESET, tilesets, num_threads);
     if (change == 0)
       break;
   }
@@ -615,7 +623,7 @@ int ssandPile_do_tile_opt_avx (int x, int y, int width, int height)
     for (int i = 0; i < height; i++) {
       int is_border_up   = (i == 0);
       int is_border_down = (i == (height - 1));
-      down_vec = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
+      down_vec           = _mm256_load_si256 ((__m256i *)(in_cell + DIM));
 
       __m256i res = _mm256_and_si256 (center_vec, m256_3);
 
@@ -747,8 +755,8 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
 
   int diff = 0;
 
-  TYPE *restrict in_cell   = table_cell (TABLE, in, y, x);
-  TYPE *restrict out_cell  = table_cell (TABLE, out, y, x);
+  TYPE *restrict in_cell            = table_cell (TABLE, in, y, x);
+  TYPE *restrict out_cell           = table_cell (TABLE, out, y, x);
   const register __m256i MASK_ZERO  = _mm256_set1_epi32 (0);
   const register __m256i MASK_MOD_4 = _mm256_set1_epi32 (3);
 
@@ -787,7 +795,7 @@ int ssandPile_do_tile_avx (int x, int y, int width, int height)
                                        _mm256_srli_epi32 (up_vec, 2));
       res          = _mm256_add_epi32 (res, tops);
 
-      res          = _mm256_blendv_epi8 (MASK_ZERO, res, mask);
+      res = _mm256_blendv_epi8 (MASK_ZERO, res, mask);
       _mm256_store_si256 ((__m256i *)(out_cell + j), res);
 
       __m256 cast              = (__m256)_mm256_cmpeq_epi32 (res, center_vec);
@@ -984,8 +992,7 @@ unsigned ssandPile_compute_ocl_multi_m4_loop (unsigned nb_iter)
   size_t local [2]  = {TILE_W, TILE_H};
   cl_int err;
 
-  const unsigned BATCH_SIZE = 512;
-  const int zero            = 0;
+  const int zero = 0;
 
   err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
                         &ocl_changed_buffer);
@@ -994,14 +1001,14 @@ unsigned ssandPile_compute_ocl_multi_m4_loop (unsigned nb_iter)
   unsigned total_it = 0;
   monitoring_start (easypap_gpu_lane (0));
 
-  for (unsigned it = 1; it <= nb_iter; it += BATCH_SIZE * 4) {
+  for (unsigned it = 1; it <= nb_iter; it += gpu_batch_size * 4) {
     err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
                                sizeof (int), 0, sizeof (int), 0, NULL, NULL);
 
     unsigned remaining = nb_iter - it + 1;
     unsigned max_k     = (remaining + 3) / 4;
-    if (max_k > BATCH_SIZE)
-      max_k = BATCH_SIZE;
+    if (max_k > gpu_batch_size)
+      max_k = gpu_batch_size;
     if (max_k == 0)
       break;
 
@@ -1442,6 +1449,478 @@ void ssandPile_refresh_img_ocl_multi_m5_static_quad (void)
       cur_img (DIM - 1 - y, DIM - 1 - x) = color; /* bottom-right */
     }
   }
+}
+
+/*
+ * =============================================
+ * HYBRID OpenMP-OpenCL (Step 4)
+ * =============================================
+ * Domain split horizontally :
+ *   GPU : rows [0, gpu_y_end)
+ *   CPU : rows [gpu_y_end, DIM)
+ */
+
+static int gpu_y_end        = 0;
+static int border_thickness = 0;
+
+/* ---- Config ---- */
+
+void ssandPile_config_ocl_hybrid (char *param)
+{
+  sandPile_config (param);
+  easypap_gl_buffer_sharing = 0;
+}
+
+void ssandPile_config_ocl_hybrid_thick (char *param)
+{
+  ssandPile_config_ocl_hybrid (param);
+}
+
+/* ---- Init ---- */
+
+static int border_thickness_mult = 1;
+
+static void hybrid_common_init (void)
+{
+  ssandPile_init_ocl ();
+
+  int gpu_pct = 75;
+  if (config_param != NULL) {
+    char *colon = strchr (config_param, ':');
+    if (colon != NULL) {
+      border_thickness_mult = atoi (colon + 1);
+    }
+    gpu_pct = atoi (config_param);
+  }
+
+  gpu_y_end = (DIM * gpu_pct) / 100;
+  gpu_y_end = (gpu_y_end / TILE_H) * TILE_H;
+  if (gpu_y_end <= 0)
+    gpu_y_end = TILE_H;
+  if (gpu_y_end >= (int)DIM)
+    gpu_y_end = DIM - TILE_H;
+
+  PRINT_DEBUG ('u', "Hybrid: GPU rows [0,%d), CPU rows [%d,%d), split=%d%%\n",
+               gpu_y_end, gpu_y_end, DIM, gpu_pct);
+  PRINT_DEBUG ('u', "tile size: %d %d\n", TILE_W, TILE_H);
+}
+
+void ssandPile_init_ocl_hybrid (void)
+{
+  hybrid_common_init ();
+  border_thickness = 1;
+}
+
+void ssandPile_init_ocl_hybrid_thick (void)
+{
+  hybrid_common_init ();
+  border_thickness = border_thickness_mult * TILE_H;
+  if (gpu_y_end + border_thickness > (int)DIM)
+    border_thickness = DIM - gpu_y_end;
+  if (gpu_y_end - border_thickness < 0)
+    border_thickness = gpu_y_end;
+  PRINT_DEBUG ('u', "Hybrid thick: border_thickness = %d\n", border_thickness);
+}
+
+/* ---- Send data (TABLE -> GPU) ---- */
+
+void ssandPile_send_data_ocl_hybrid (void)
+{
+  cl_int err;
+  const unsigned size = DIM * DIM * sizeof (unsigned);
+
+  err =
+      clEnqueueWriteBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE, 0, size,
+                            table_cell (TABLE, in, 0, 0), 0, NULL, NULL);
+  check (err, "hybrid: failed to write cur_buffer");
+
+  err =
+      clEnqueueWriteBuffer (ocl_queue (0), ocl_next_buffer (0), CL_TRUE, 0,
+                            size, table_cell (TABLE, out, 0, 0), 0, NULL, NULL);
+  check (err, "hybrid: failed to write next_buffer");
+}
+
+void ssandPile_send_data_ocl_hybrid_thick (void)
+{
+  ssandPile_send_data_ocl_hybrid ();
+}
+
+/* ---- Refresh image (GPU -> TABLE -> pixels) ---- */
+
+void ssandPile_refresh_img_ocl_hybrid (void)
+{
+  cl_int err;
+  err = clEnqueueReadBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE, 0,
+                             gpu_y_end * DIM * sizeof (unsigned),
+                             table_cell (TABLE, in, 0, 0), 0, NULL, NULL);
+  check (err, "hybrid: failed to read GPU rows for refresh");
+  ssandPile_refresh_img ();
+}
+
+void ssandPile_refresh_img_ocl_hybrid_thick (void)
+{
+  ssandPile_refresh_img_ocl_hybrid ();
+}
+
+/* ---- V1 : thin border (exchange 1 row per iteration) ---- */
+
+unsigned ssandPile_compute_ocl_hybrid (unsigned nb_iter)
+{
+  size_t global [2] = {GPU_SIZE_X, (size_t)gpu_y_end};
+  size_t local [2]  = {TILE_W, TILE_H};
+  cl_int err;
+  const int zero = 0;
+
+  err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
+                        &ocl_changed_buffer);
+  err |= clSetKernelArg (ocl_compute_kernel (0), 3, sizeof (int), &gpu_y_end);
+  check (err, "hybrid: failed to set args 2-3");
+
+  monitoring_start (easypap_gpu_lane (0));
+
+  for (unsigned it = 1; it <= nb_iter; it++) {
+    int cpu_changed = 0;
+
+    err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
+                               sizeof (int), 0, sizeof (int), 0, NULL, NULL);
+
+    /* GPU launch (async) */
+    err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                          &ocl_cur_buffer (0));
+    err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                           &ocl_next_buffer (0));
+    check (err, "hybrid: failed to set args 0-1");
+
+    err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
+                                  NULL, global, local, 0, NULL, NULL);
+    check (err, "hybrid: kernel launch failed");
+
+    /* CPU computation (concurrent with GPU) */
+#pragma omp parallel for collapse(2) schedule(static) reduction(| : cpu_changed)
+    for (int y = gpu_y_end; y < (int)DIM; y += TILE_H) {
+      for (int x = 0; x < (int)DIM; x += TILE_W) {
+        int y_0 = (y == 0);
+        int yf  = (y + TILE_H == (int)DIM);
+        int x_0 = (x == 0);
+        int xf  = (x + TILE_W == (int)DIM);
+        cpu_changed |=
+            do_tile (x + x_0, y + y_0, TILE_W - xf - x_0, TILE_H - yf - y_0);
+      }
+    }
+
+    /* Wait for GPU */
+    clFinish (ocl_queue (0));
+
+    /* GPU -> CPU : row (gpu_y_end-1) from GPU out buffer -> TABLE[out] */
+    err = clEnqueueReadBuffer (
+        ocl_queue (0), ocl_next_buffer (0), CL_TRUE,
+        (size_t)(gpu_y_end - 1) * DIM * sizeof (unsigned),
+        DIM * sizeof (unsigned), table_cell (TABLE, out, gpu_y_end - 1, 0), 0,
+        NULL, NULL);
+    check (err, "hybrid: GPU -> CPU border read failed");
+
+    /* CPU -> GPU : row gpu_y_end from TABLE[out] -> GPU out buffer */
+    err = clEnqueueWriteBuffer (
+        ocl_queue (0), ocl_next_buffer (0), CL_TRUE,
+        (size_t)gpu_y_end * DIM * sizeof (unsigned), DIM * sizeof (unsigned),
+        table_cell (TABLE, out, gpu_y_end, 0), 0, NULL, NULL);
+    check (err, "hybrid: CPU -> GPU border write failed");
+
+    /* Swap both sides */
+    cl_mem tmp          = ocl_cur_buffer (0);
+    ocl_cur_buffer (0)  = ocl_next_buffer (0);
+    ocl_next_buffer (0) = tmp;
+    swap_tables ();
+
+    /* Termination check */
+    int gpu_changed;
+    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                               sizeof (int), &gpu_changed, 0, NULL, NULL);
+
+    if (gpu_changed == 0 && cpu_changed == 0) {
+      monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+      return it;
+    }
+  }
+
+  monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+  return 0;
+}
+
+/* ---- V2 : thick border (exchange every border_thickness iterations) ---- */
+
+unsigned ssandPile_compute_ocl_hybrid_thick (unsigned nb_iter)
+{
+  size_t global [2] = {GPU_SIZE_X, (size_t)(gpu_y_end + border_thickness)};
+  size_t local [2]  = {TILE_W, TILE_H};
+  cl_int err;
+  const int zero = 0;
+  const int bt   = border_thickness;
+
+  err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
+                        &ocl_changed_buffer);
+  err |= clSetKernelArg (ocl_compute_kernel (0), 3, sizeof (int), &gpu_y_end);
+  check (err, "hybrid_thick: failed to set args 2-3");
+
+  monitoring_start (easypap_gpu_lane (0));
+
+  unsigned total_it = 0;
+  int cpu_start     = gpu_y_end - bt;
+  if (cpu_start < 0)
+    cpu_start = 0;
+
+  for (unsigned it = 1; it <= nb_iter; it += bt) {
+    int cpu_changed = 0;
+
+    err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
+                               sizeof (int), 0, sizeof (int), 0, NULL, NULL);
+
+    /* Run bt sub-iterations */
+    for (int sub = 0; sub < bt && total_it < nb_iter; sub++) {
+
+      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                            &ocl_cur_buffer (0));
+      err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                             &ocl_next_buffer (0));
+      check (err, "hybrid_thick: failed to set args");
+
+      err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
+                                    NULL, global, local, 0, NULL, NULL);
+      check (err, "hybrid_thick: kernel launch failed");
+
+      /* CPU : rows [gpu_y_end - bt, DIM) */
+      int sub_cpu_changed = 0;
+#pragma omp parallel for collapse(2) schedule(static)                          \
+    reduction(| : sub_cpu_changed)
+      for (int y = cpu_start; y < (int)DIM; y += TILE_H) {
+        for (int x = 0; x < (int)DIM; x += TILE_W) {
+          int y_0 = (y == 0);
+          int yf  = (y + TILE_H == (int)DIM);
+          int x_0 = (x == 0);
+          int xf  = (x + TILE_W == (int)DIM);
+          int changed =
+              do_tile (x + x_0, y + y_0, TILE_W - xf - x_0, TILE_H - yf - y_0);
+          if (y >= gpu_y_end) {
+            sub_cpu_changed |= changed;
+          }
+        }
+      }
+      cpu_changed |= sub_cpu_changed;
+
+      clFinish (ocl_queue (0));
+
+      cl_mem tmp          = ocl_cur_buffer (0);
+      ocl_cur_buffer (0)  = ocl_next_buffer (0);
+      ocl_next_buffer (0) = tmp;
+      swap_tables ();
+
+      total_it++;
+    }
+
+    /* Thick border exchange (on current/input buffers after swaps) */
+    /* GPU -> CPU : rows [gpu_y_end-bt, gpu_y_end) */
+    err = clEnqueueReadBuffer (
+        ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+        (size_t)(gpu_y_end - bt) * DIM * sizeof (unsigned),
+        (size_t)bt * DIM * sizeof (unsigned),
+        table_cell (TABLE, in, gpu_y_end - bt, 0), 0, NULL, NULL);
+    check (err, "hybrid_thick: GPU -> CPU border read failed");
+
+    /* CPU -> GPU : rows [gpu_y_end, gpu_y_end+bt) */
+    err = clEnqueueWriteBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+                                (size_t)gpu_y_end * DIM * sizeof (unsigned),
+                                (size_t)bt * DIM * sizeof (unsigned),
+                                table_cell (TABLE, in, gpu_y_end, 0), 0, NULL,
+                                NULL);
+    check (err, "hybrid_thick: CPU -> GPU border write failed");
+
+    /* Termination */
+    int gpu_changed;
+    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                               sizeof (int), &gpu_changed, 0, NULL, NULL);
+
+    if (gpu_changed == 0 && cpu_changed == 0) {
+      monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+      return total_it;
+    }
+  }
+
+  monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+  return 0;
+}
+
+/* ---- V3 : dynamic thick border (adjusts GPU/CPU ratio via EWMA) ---- */
+
+void ssandPile_config_ocl_hybrid_dynamic (char *param)
+{
+  ssandPile_config_ocl_hybrid (param);
+}
+
+void ssandPile_init_ocl_hybrid_dynamic (void)
+{
+  hybrid_common_init ();
+  border_thickness = TILE_H;
+  if (gpu_y_end + border_thickness > (int)DIM)
+    border_thickness = DIM - gpu_y_end;
+  if (gpu_y_end - border_thickness < 0)
+    border_thickness = gpu_y_end;
+  PRINT_DEBUG ('u', "Hybrid dynamic: initial border_thickness = %d\n",
+               border_thickness);
+}
+
+void ssandPile_send_data_ocl_hybrid_dynamic (void)
+{
+  ssandPile_send_data_ocl_hybrid ();
+}
+
+void ssandPile_refresh_img_ocl_hybrid_dynamic (void)
+{
+  ssandPile_refresh_img_ocl_hybrid ();
+}
+
+unsigned ssandPile_compute_ocl_hybrid_dynamic (unsigned nb_iter)
+{
+  size_t local [2] = {TILE_W, TILE_H};
+  cl_int err;
+  const int zero = 0;
+  const int bt   = border_thickness;
+
+  err = clSetKernelArg (ocl_compute_kernel (0), 2, sizeof (cl_mem),
+                        &ocl_changed_buffer);
+  err |= clSetKernelArg (ocl_compute_kernel (0), 3, sizeof (int), &gpu_y_end);
+  check (err, "hybrid_dyn: failed to set args 2-3");
+
+  monitoring_start (easypap_gpu_lane (0));
+
+  unsigned total_it   = 0;
+  float ewma_gpu_wait = 0.0f;
+
+  for (unsigned it = 1; it <= nb_iter; it += bt) {
+    int cpu_changed = 0;
+
+    int cpu_start = gpu_y_end - bt;
+    if (cpu_start < 0)
+      cpu_start = 0;
+
+    size_t global [2] = {GPU_SIZE_X, (size_t)(gpu_y_end + bt)};
+
+    err = clEnqueueFillBuffer (ocl_queue (0), ocl_changed_buffer, &zero,
+                               sizeof (int), 0, sizeof (int), 0, NULL, NULL);
+
+    /* Run bt sub-iterations */
+    double t_start  = omp_get_wtime ();
+    double cpu_time = 0.0;
+
+    for (int sub = 0; sub < bt && total_it < nb_iter; sub++) {
+
+      err = clSetKernelArg (ocl_compute_kernel (0), 0, sizeof (cl_mem),
+                            &ocl_cur_buffer (0));
+      err |= clSetKernelArg (ocl_compute_kernel (0), 1, sizeof (cl_mem),
+                             &ocl_next_buffer (0));
+      err |=
+          clSetKernelArg (ocl_compute_kernel (0), 3, sizeof (int), &gpu_y_end);
+      check (err, "hybrid_dyn: failed to set args");
+
+      err = clEnqueueNDRangeKernel (ocl_queue (0), ocl_compute_kernel (0), 2,
+                                    NULL, global, local, 0, NULL, NULL);
+      check (err, "hybrid_dyn: kernel launch failed");
+
+      /* CPU */
+      int sub_cpu_changed = 0;
+      double t_cpu_start  = omp_get_wtime ();
+#pragma omp parallel for collapse(2) schedule(static)                          \
+    reduction(| : sub_cpu_changed)
+      for (int y = cpu_start; y < (int)DIM; y += TILE_H) {
+        for (int x = 0; x < (int)DIM; x += TILE_W) {
+          int y_0 = (y == 0);
+          int yf  = (y + TILE_H == (int)DIM);
+          int x_0 = (x == 0);
+          int xf  = (x + TILE_W == (int)DIM);
+          int changed =
+              do_tile (x + x_0, y + y_0, TILE_W - xf - x_0, TILE_H - yf - y_0);
+          if (y >= gpu_y_end) {
+            sub_cpu_changed |= changed;
+          }
+        }
+      }
+      cpu_time += (omp_get_wtime () - t_cpu_start);
+      cpu_changed |= sub_cpu_changed;
+
+      clFinish (ocl_queue (0));
+
+      cl_mem tmp          = ocl_cur_buffer (0);
+      ocl_cur_buffer (0)  = ocl_next_buffer (0);
+      ocl_next_buffer (0) = tmp;
+      swap_tables ();
+
+      total_it++;
+    }
+
+    double total_time    = omp_get_wtime () - t_start;
+    double gpu_wait_time = total_time - cpu_time;
+
+    // EWMA update (alpha = 0.2)
+    ewma_gpu_wait = 0.2f * (float)gpu_wait_time + 0.8f * ewma_gpu_wait;
+
+    /* Thick border exchange */
+    err = clEnqueueReadBuffer (
+        ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+        (size_t)(gpu_y_end - bt) * DIM * sizeof (unsigned),
+        (size_t)bt * DIM * sizeof (unsigned),
+        table_cell (TABLE, in, gpu_y_end - bt, 0), 0, NULL, NULL);
+    check (err, "hybrid_dyn: GPU->CPU border read failed");
+
+    err = clEnqueueWriteBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+                                (size_t)gpu_y_end * DIM * sizeof (unsigned),
+                                (size_t)bt * DIM * sizeof (unsigned),
+                                table_cell (TABLE, in, gpu_y_end, 0), 0, NULL,
+                                NULL);
+    check (err, "hybrid_dyn: CPU->GPU border write failed");
+
+    /* Termination */
+    int gpu_changed;
+    err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
+                               sizeof (int), &gpu_changed, 0, NULL, NULL);
+
+    if (gpu_changed == 0 && cpu_changed == 0) {
+      monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+      return total_it;
+    }
+
+    /* Dynamic load balancing */
+    int old_gpu_y_end = gpu_y_end;
+    // 0.0005 seconds = 500 us, 0.0001 seconds = 100 us
+    if (ewma_gpu_wait > 0.0005f) {
+      if (gpu_y_end >= 3 * TILE_H)
+        gpu_y_end -= TILE_H;
+    } else if (ewma_gpu_wait < 0.0001f) {
+      if (gpu_y_end <= (int)DIM - 3 * TILE_H)
+        gpu_y_end += TILE_H;
+    }
+
+    if (gpu_y_end != old_gpu_y_end) {
+      if (gpu_y_end > old_gpu_y_end) {
+        // GPU grew : transfer rows [old, new) from CPU in to GPU in
+        err = clEnqueueWriteBuffer (
+            ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+            (size_t)old_gpu_y_end * DIM * sizeof (unsigned),
+            (size_t)(gpu_y_end - old_gpu_y_end) * DIM * sizeof (unsigned),
+            table_cell (TABLE, in, old_gpu_y_end, 0), 0, NULL, NULL);
+        check (err, "hybrid_dyn: CPU->GPU dynamic shift failed");
+      } else {
+        // CPU grew : transfer rows [new, old) from GPU in to CPU in
+        err = clEnqueueReadBuffer (
+            ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+            (size_t)gpu_y_end * DIM * sizeof (unsigned),
+            (size_t)(old_gpu_y_end - gpu_y_end) * DIM * sizeof (unsigned),
+            table_cell (TABLE, in, gpu_y_end, 0), 0, NULL, NULL);
+        check (err, "hybrid_dyn: GPU->CPU dynamic shift failed");
+      }
+    }
+  }
+
+  monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
+  return 0;
 }
 
 #endif
