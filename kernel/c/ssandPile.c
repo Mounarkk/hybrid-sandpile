@@ -1479,6 +1479,8 @@ void ssandPile_config_ocl_hybrid_thick (char *param)
 /* ---- Init ---- */
 
 static int border_thickness_mult = 1;
+static float hybrid_alpha        = 0.2f;
+static FILE *trajectory_log      = NULL;
 
 static void hybrid_common_init (void)
 {
@@ -1489,6 +1491,10 @@ static void hybrid_common_init (void)
     char *colon = strchr (config_param, ':');
     if (colon != NULL) {
       border_thickness_mult = atoi (colon + 1);
+      char *second_colon    = strchr (colon + 1, ':');
+      if (second_colon != NULL) {
+        hybrid_alpha = atof (second_colon + 1);
+      }
     }
     gpu_pct = atoi (config_param);
   }
@@ -1500,8 +1506,15 @@ static void hybrid_common_init (void)
   if (gpu_y_end >= (int)DIM)
     gpu_y_end = DIM - TILE_H;
 
-  PRINT_DEBUG ('u', "Hybrid: GPU rows [0,%d), CPU rows [%d,%d), split=%d%%\n",
-               gpu_y_end, gpu_y_end, DIM, gpu_pct);
+  PRINT_DEBUG ('u', "Hybrid: GPU rows [0,%d), CPU rows [%d,%d), split=%d%%, bt_mult=%d, alpha=%.2f\n",
+               gpu_y_end, gpu_y_end, DIM, gpu_pct, border_thickness_mult, hybrid_alpha);
+
+  if (trajectory_log != NULL)
+    fclose (trajectory_log);
+  trajectory_log = fopen ("trajectory.csv", "w");
+  if (trajectory_log)
+    fprintf (trajectory_log, "iteration;gpu_y_end\n");
+
   PRINT_DEBUG ('u', "tile size: %d %d\n", TILE_W, TILE_H);
 }
 
@@ -1562,6 +1575,7 @@ void ssandPile_refresh_img_ocl_hybrid_thick (void)
   ssandPile_refresh_img_ocl_hybrid ();
 }
 
+
 /* ---- V1 : thin border (exchange 1 row per iteration) ---- */
 
 unsigned ssandPile_compute_ocl_hybrid (unsigned nb_iter)
@@ -1596,7 +1610,7 @@ unsigned ssandPile_compute_ocl_hybrid (unsigned nb_iter)
     check (err, "hybrid: kernel launch failed");
 
     /* CPU computation (concurrent with GPU) */
-#pragma omp parallel for collapse(2) schedule(static) reduction(| : cpu_changed)
+#pragma omp parallel for collapse(2) schedule(runtime) reduction(| : cpu_changed)
     for (int y = gpu_y_end; y < (int)DIM; y += TILE_H) {
       for (int x = 0; x < (int)DIM; x += TILE_W) {
         int y_0 = (y == 0);
@@ -1690,7 +1704,7 @@ unsigned ssandPile_compute_ocl_hybrid_thick (unsigned nb_iter)
 
       /* CPU : rows [gpu_y_end - bt, DIM) */
       int sub_cpu_changed = 0;
-#pragma omp parallel for collapse(2) schedule(static)                          \
+#pragma omp parallel for collapse(2) schedule(runtime)                          \
     reduction(| : sub_cpu_changed)
       for (int y = cpu_start; y < (int)DIM; y += TILE_H) {
         for (int x = 0; x < (int)DIM; x += TILE_W) {
@@ -1828,7 +1842,7 @@ unsigned ssandPile_compute_ocl_hybrid_dynamic (unsigned nb_iter)
       /* CPU */
       int sub_cpu_changed = 0;
       double t_cpu_start  = omp_get_wtime ();
-#pragma omp parallel for collapse(2) schedule(static)                          \
+#pragma omp parallel for collapse(2) schedule(runtime)                          \
     reduction(| : sub_cpu_changed)
       for (int y = cpu_start; y < (int)DIM; y += TILE_H) {
         for (int x = 0; x < (int)DIM; x += TILE_W) {
@@ -1859,8 +1873,12 @@ unsigned ssandPile_compute_ocl_hybrid_dynamic (unsigned nb_iter)
     double total_time    = omp_get_wtime () - t_start;
     double gpu_wait_time = total_time - cpu_time;
 
-    // EWMA update (alpha = 0.2)
-    ewma_gpu_wait = 0.2f * (float)gpu_wait_time + 0.8f * ewma_gpu_wait;
+    // EWMA update (alpha = hybrid_alpha)
+    ewma_gpu_wait = hybrid_alpha * (float)gpu_wait_time +
+                    (1.0f - hybrid_alpha) * ewma_gpu_wait;
+
+    if (trajectory_log)
+      fprintf (trajectory_log, "%u;%d\n", total_it, gpu_y_end);
 
     /* Thick border exchange */
     err = clEnqueueReadBuffer (
@@ -1919,6 +1937,10 @@ unsigned ssandPile_compute_ocl_hybrid_dynamic (unsigned nb_iter)
     }
   }
 
+  if (trajectory_log) {
+    fclose (trajectory_log);
+    trajectory_log = NULL;
+  }
   monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
   return 0;
 }
