@@ -42,6 +42,7 @@ def run_case(label, dim, iterations, algo):
     # Execute the sweep
     common_options = {
         "-k": ["ssandPile"],
+        "-g": [""],
         "-v": ["ocl_hybrid_thick"],
         "-c": ["60:1"],
         "-th": list(th_list),
