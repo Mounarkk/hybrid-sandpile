@@ -25,7 +25,7 @@ ompICV = {
   "OMP_PLACES":       ["cores"],
 }
 
-nbruns = 20
+nbruns = 4
 
 # --- Case C1: Dense 4096 ---
 easypapOptions_C1 = common_options.copy()
