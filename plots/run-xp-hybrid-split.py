@@ -20,10 +20,10 @@ easypapOptions = {
 
 ompICV = {
   "OMP_SCHEDULE": ["static"],
-  "OMP_NUM_THREADS":  ["12"],
+  "OMP_NUM_THREADS":  ["16"],
   "OMP_PLACES":       ["cores"],
 }
 
-nbruns = 3
+nbruns = 20
 
 execute("./run ", ompICV, easypapOptions, nbruns, verbose=False, easyPath=".")
