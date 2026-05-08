@@ -40,5 +40,5 @@ plt.ylabel("gpu_y_end (rows allocated to GPU)", fontsize=12)
 plt.legend()
 
 plt.tight_layout()
-plt.savefig("dynamic_trajectory.png", dpi=300)
-print("Plot saved to dynamic_trajectory.png")
+plt.savefig("imgs/hybrid/dynamic_trajectory.png", dpi=300)
+print("Plot saved to imgs/hybriddynamic_trajectory.png")
