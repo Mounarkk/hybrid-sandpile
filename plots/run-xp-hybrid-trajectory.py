@@ -16,7 +16,7 @@ print("Running dynamic trajectory experiment...")
 # -s 2048              : size
 # -i 4000              : max iterations
 # -c 50:1:0.1          : start_pct:bt_mult:alpha
-cmd = "./run -v ocl_hybrid_dynamic -a spirals -s 2048 -i 4000 -c 60:1:0.1 -n -g"
+cmd = "./run -k ssandPile -g -v ocl_hybrid_dynamic -a spirals -s 2048 -i 4000 -th 16 -tw 32 -c 60:1:0.1 -n -g"
 subprocess.run(cmd.split())
 
 if not os.path.exists("trajectory.csv"):
