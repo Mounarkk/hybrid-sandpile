@@ -1506,8 +1506,11 @@ static void hybrid_common_init (void)
   if (gpu_y_end >= (int)DIM)
     gpu_y_end = DIM - TILE_H;
 
-  PRINT_DEBUG ('u', "Hybrid: GPU rows [0,%d), CPU rows [%d,%d), split=%d%%, bt_mult=%d, alpha=%.2f\n",
-               gpu_y_end, gpu_y_end, DIM, gpu_pct, border_thickness_mult, hybrid_alpha);
+  PRINT_DEBUG ('u',
+               "Hybrid: GPU rows [0,%d), CPU rows [%d,%d), split=%d%%, "
+               "bt_mult=%d, alpha=%.2f\n",
+               gpu_y_end, gpu_y_end, DIM, gpu_pct, border_thickness_mult,
+               hybrid_alpha);
 
   if (trajectory_log != NULL)
     fclose (trajectory_log);
@@ -1575,7 +1578,6 @@ void ssandPile_refresh_img_ocl_hybrid_thick (void)
   ssandPile_refresh_img_ocl_hybrid ();
 }
 
-
 /* ---- V1 : thin border (exchange 1 row per iteration) ---- */
 
 unsigned ssandPile_compute_ocl_hybrid (unsigned nb_iter)
@@ -1610,7 +1612,8 @@ unsigned ssandPile_compute_ocl_hybrid (unsigned nb_iter)
     check (err, "hybrid: kernel launch failed");
 
     /* CPU computation (concurrent with GPU) */
-#pragma omp parallel for collapse(2) schedule(runtime) reduction(| : cpu_changed)
+#pragma omp parallel for collapse(2) schedule(runtime)                         \
+    reduction(| : cpu_changed)
     for (int y = gpu_y_end; y < (int)DIM; y += TILE_H) {
       for (int x = 0; x < (int)DIM; x += TILE_W) {
         int y_0 = (y == 0);
@@ -1704,7 +1707,7 @@ unsigned ssandPile_compute_ocl_hybrid_thick (unsigned nb_iter)
 
       /* CPU : rows [gpu_y_end - bt, DIM) */
       int sub_cpu_changed = 0;
-#pragma omp parallel for collapse(2) schedule(runtime)                          \
+#pragma omp parallel for collapse(2) schedule(runtime)                         \
     reduction(| : sub_cpu_changed)
       for (int y = cpu_start; y < (int)DIM; y += TILE_H) {
         for (int x = 0; x < (int)DIM; x += TILE_W) {
@@ -1842,7 +1845,7 @@ unsigned ssandPile_compute_ocl_hybrid_dynamic (unsigned nb_iter)
       /* CPU */
       int sub_cpu_changed = 0;
       double t_cpu_start  = omp_get_wtime ();
-#pragma omp parallel for collapse(2) schedule(runtime)                          \
+#pragma omp parallel for collapse(2) schedule(runtime)                         \
     reduction(| : sub_cpu_changed)
       for (int y = cpu_start; y < (int)DIM; y += TILE_H) {
         for (int x = 0; x < (int)DIM; x += TILE_W) {
@@ -1880,32 +1883,21 @@ unsigned ssandPile_compute_ocl_hybrid_dynamic (unsigned nb_iter)
     if (trajectory_log)
       fprintf (trajectory_log, "%u;%d\n", total_it, gpu_y_end);
 
-    /* Thick border exchange */
-    err = clEnqueueReadBuffer (
-        ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
-        (size_t)(gpu_y_end - bt) * DIM * sizeof (unsigned),
-        (size_t)bt * DIM * sizeof (unsigned),
-        table_cell (TABLE, in, gpu_y_end - bt, 0), 0, NULL, NULL);
-    check (err, "hybrid_dyn: GPU->CPU border read failed");
-
-    err = clEnqueueWriteBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
-                                (size_t)gpu_y_end * DIM * sizeof (unsigned),
-                                (size_t)bt * DIM * sizeof (unsigned),
-                                table_cell (TABLE, in, gpu_y_end, 0), 0, NULL,
-                                NULL);
-    check (err, "hybrid_dyn: CPU->GPU border write failed");
-
-    /* Termination */
+    /* Termination check first */
     int gpu_changed;
     err = clEnqueueReadBuffer (ocl_queue (0), ocl_changed_buffer, CL_TRUE, 0,
                                sizeof (int), &gpu_changed, 0, NULL, NULL);
 
     if (gpu_changed == 0 && cpu_changed == 0) {
+      /* Final sync : bring GPU data to CPU */
+      err = clEnqueueReadBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE, 0,
+                                 (size_t)gpu_y_end * DIM * sizeof (unsigned),
+                                 table_cell (TABLE, in, 0, 0), 0, NULL, NULL);
       monitoring_end_tile (0, 0, DIM, DIM, easypap_gpu_lane (0));
       return total_it;
     }
 
-    /* Dynamic load balancing */
+    /* Dynamic load balancing : adjust gpu_y_end before border exchange */
     int old_gpu_y_end = gpu_y_end;
     // 0.0005 seconds = 500 us, 0.0001 seconds = 100 us
     if (ewma_gpu_wait > 0.0005f) {
@@ -1916,24 +1908,60 @@ unsigned ssandPile_compute_ocl_hybrid_dynamic (unsigned nb_iter)
         gpu_y_end += TILE_H;
     }
 
-    if (gpu_y_end != old_gpu_y_end) {
-      if (gpu_y_end > old_gpu_y_end) {
-        // GPU grew : transfer rows [old, new) from CPU in to GPU in
-        err = clEnqueueWriteBuffer (
-            ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
-            (size_t)old_gpu_y_end * DIM * sizeof (unsigned),
-            (size_t)(gpu_y_end - old_gpu_y_end) * DIM * sizeof (unsigned),
-            table_cell (TABLE, in, old_gpu_y_end, 0), 0, NULL, NULL);
-        check (err, "hybrid_dyn: CPU->GPU dynamic shift failed");
-      } else {
-        // CPU grew : transfer rows [new, old) from GPU in to CPU in
-        err = clEnqueueReadBuffer (
-            ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
-            (size_t)gpu_y_end * DIM * sizeof (unsigned),
-            (size_t)(old_gpu_y_end - gpu_y_end) * DIM * sizeof (unsigned),
-            table_cell (TABLE, in, gpu_y_end, 0), 0, NULL, NULL);
-        check (err, "hybrid_dyn: GPU->CPU dynamic shift failed");
-      }
+    /* Now synchronize borders at the final boundary positions.
+     * After bt sub-iterations, the GPU and CPU have diverged in the
+     * overlap zones. We must reconcile using the authoritative source :
+     *   - for rows < gpu_y_end, the GPU buffer is authoritative
+     *   - for rows >= gpu_y_end, the CPU table is authoritative
+     */
+
+    if (gpu_y_end > old_gpu_y_end) {
+      /* GPU grew : CPU has the truth for [old_gpu_y_end, gpu_y_end).
+       * Write those rows from CPU -> GPU. */
+      err = clEnqueueWriteBuffer (
+          ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+          (size_t)old_gpu_y_end * DIM * sizeof (unsigned),
+          (size_t)(gpu_y_end - old_gpu_y_end) * DIM * sizeof (unsigned),
+          table_cell (TABLE, in, old_gpu_y_end, 0), 0, NULL, NULL);
+      check (err, "hybrid_dyn: CPU->GPU dynamic shift failed");
+    } else if (gpu_y_end < old_gpu_y_end) {
+      /* CPU grew : GPU has the truth for [gpu_y_end, old_gpu_y_end).
+       * Read those rows from GPU -> CPU. */
+      err = clEnqueueReadBuffer (
+          ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+          (size_t)gpu_y_end * DIM * sizeof (unsigned),
+          (size_t)(old_gpu_y_end - gpu_y_end) * DIM * sizeof (unsigned),
+          table_cell (TABLE, in, gpu_y_end, 0), 0, NULL, NULL);
+      check (err, "hybrid_dyn: GPU->CPU dynamic shift failed");
+    }
+
+    /* Exchange thick borders around the new gpu_y_end */
+    /* GPU -> CPU : rows [gpu_y_end - bt, gpu_y_end) */
+    int read_start = gpu_y_end - bt;
+    if (read_start < 0)
+      read_start = 0;
+    int read_len = gpu_y_end - read_start;
+    if (read_len > 0) {
+      err = clEnqueueReadBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+                                 (size_t)read_start * DIM * sizeof (unsigned),
+                                 (size_t)read_len * DIM * sizeof (unsigned),
+                                 table_cell (TABLE, in, read_start, 0), 0, NULL,
+                                 NULL);
+      check (err, "hybrid_dyn: GPU->CPU border read failed");
+    }
+
+    /* CPU -> GPU : rows [gpu_y_end, gpu_y_end + bt) */
+    int write_end = gpu_y_end + bt;
+    if (write_end > (int)DIM)
+      write_end = (int)DIM;
+    int write_len = write_end - gpu_y_end;
+    if (write_len > 0) {
+      err = clEnqueueWriteBuffer (ocl_queue (0), ocl_cur_buffer (0), CL_TRUE,
+                                  (size_t)gpu_y_end * DIM * sizeof (unsigned),
+                                  (size_t)write_len * DIM * sizeof (unsigned),
+                                  table_cell (TABLE, in, gpu_y_end, 0), 0, NULL,
+                                  NULL);
+      check (err, "hybrid_dyn: CPU->GPU border write failed");
     }
   }
 
