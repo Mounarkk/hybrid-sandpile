@@ -57,22 +57,19 @@ def run_case(label, dim, iterations, algo):
     ompICV = {
         "OMP_NUM_THREADS": [24],
         "OMP_SCHEDULE": ["static"],
-        "OMP_PLACES": ["cores"],
+        "OMP_PLACES": ["threads", "cores", "sockets"],
     }
 
-    # execute will run combinations. 
-    # BUT we want to run specific pairs of (tw, th).
-    # Since expTools execute() usually cross-products all values, 
-    # we have to use the 'variation' mode or call it for each config if needed.
-    # However, EasyPAP's execute() can handle lists if passed carefully.
-    
-    # To be safe and avoid the cross-product of tw_list and th_list,
-    # we iterate and call execute for each valid pair.
+    # To be safe and avoid the cross-product of lists,
+    # we iterate and call execute for each valid pair and each place.
     for tw, th in configs:
-        opts = common_options.copy()
-        opts["-tw"] = [tw]
-        opts["-th"] = [th]
-        execute("./run ", ompICV, opts, nbruns=3, verbose=False, easyPath=".")
+        for place in ompICV["OMP_PLACES"]:
+            opts = common_options.copy()
+            opts["-tw"] = [tw]
+            opts["-th"] = [th]
+            icv = ompICV.copy()
+            icv["OMP_PLACES"] = [place]
+            execute("./run ", icv, opts, nbruns=1, verbose=False, easyPath=".")
 
 # Clear old results
 if os.path.exists(output_file):
