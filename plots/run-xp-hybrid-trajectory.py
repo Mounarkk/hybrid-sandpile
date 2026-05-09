@@ -69,12 +69,12 @@ for ax, (name, sub_df) in zip(g.axes.flat, final_df.groupby('scenario', sort=Fal
     initial_y = (dim * start_pct) // 100
     ax.axhline(y=initial_y, color='red', linestyle='--', alpha=0.6, label=f'Initial ({start_pct}%)')
 
-g.add_legend(title="Alpha (Smoothing)")
-g.set_axis_labels("Iteration (Super-steps)", "gpu_y_end (GPU Rows)")
+g.add_legend(title="Alpha")
+g.set_axis_labels("Iteration (batches)", "gpu_y_end (GPU rows)")
 g.set_titles("{col_name}")
 
 plt.subplots_adjust(top=0.85)
-g.fig.suptitle("Dynamic Load Balancing: UP and DOWN trajectories", fontsize=16)
+g.fig.suptitle("Dynamic load balancing : UP and DOWN trajectories", fontsize=16)
 
 plot_path = "imgs/hybrid/dynamic_trajectory_comparison.png"
 plt.savefig(plot_path, dpi=300)
