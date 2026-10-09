@@ -1,0 +1,25 @@
+# EasyPAP build and run artifacts, when these files are used inside a checkout
+build/
+obj/
+data/dump/
+data/hash/
+data/traces/
+data/perf/
+imgs/
+*.o
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
